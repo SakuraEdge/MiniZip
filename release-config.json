@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "channel": "Dev",
+  "tag": "dev-v1.0.0",
+  "displayVersion": "Dev v1.0.0",
+  "repository": "SakuraEdge/MiniZip",
+  "installerName": "MiniZip-Dev-1.0.0-Setup-x64.exe"
+}

@@ -1,0 +1,51 @@
+name: Build and Release MiniZip
+on:
+  push:
+    tags:
+      - 'dev-v*'
+      - 'rev-v*'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: node node_modules/electron/install.js
+      - name: Configure tagged release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node scripts/configure-release.cjs
+      - run: npm run setup:engine
+      - run: npm run icons
+      - run: npm run check
+      - run: npm test
+      - run: npm run test:ui
+      - run: npm run test:desktop
+      - run: npm run build
+      - run: npm run installer
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiniZip-Windows-x64
+          path: |
+            release/**/MiniZip-*-Setup-x64.exe
+            release/**/MiniZip-*-Setup-x64.exe.sha256
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $config = Get-Content release-config.json -Raw | ConvertFrom-Json
+          $installer = Join-Path "release/MiniZip-$($config.channel)-$($config.version)" $config.installerName
+          $notes = "releases/$($config.tag).md"
+          $flags = @('--title', $config.displayVersion, '--verify-tag')
+          if (Test-Path -LiteralPath $notes) { $flags += @('--notes-file', $notes) } else { $flags += '--generate-notes' }
+          if ($config.channel -eq 'Dev') { $flags += '--prerelease' }
+          gh release create $config.tag $installer "$installer.sha256" @flags

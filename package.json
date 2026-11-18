@@ -1,0 +1,36 @@
+{
+  "name": "minizip",
+  "productName": "MiniZip",
+  "version": "1.0.0-dev.1",
+  "private": true,
+  "description": "MiniZip local archive and file manager",
+  "author": "MiniZip contributors",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "setup:engine": "node scripts/setup-engine.cjs",
+    "icons": "node scripts/build-icons.cjs",
+    "build": "node scripts/package.cjs",
+    "installer": "node scripts/build-installer.cjs",
+    "test": "node --test tests/core.test.cjs tests/engine.test.cjs tests/compress.test.cjs tests/releases.test.cjs",
+    "test:ui": "playwright test",
+    "test:desktop": "node --test tests/desktop.test.cjs",
+    "check": "node --check app.js && node --check quick.js && node --check desktop/main.cjs && node --check desktop/archive-engine.cjs && node --check desktop/compress-engine.cjs && node --check desktop/updates.cjs"
+  },
+  "dependencies": {
+    "@zip.js/zip.js": "2.25.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "@electron/packager": "20.3.0",
+    "7zip-bin": "5.2.0",
+    "electron": "45.3.4",
+    "@resvg/resvg-js": "2.6.2",
+    "electron-builder": "26.18.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SakuraEdge/MiniZip.git"
+  },
+  "homepage": "https://github.com/SakuraEdge/MiniZip"
+}

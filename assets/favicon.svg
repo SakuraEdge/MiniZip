@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128" fill="none">
+  <title>MiniZip</title>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="#2B2D32"/>
+  <path d="M29 91V38C29 34.6863 31.6863 32 35 32H42L64 58L86 32H93C96.3137 32 99 34.6863 99 38V91H83V58L64 80L45 58V91H29Z" fill="#FFFFFF"/>
+  <rect x="56" y="79" width="16" height="22" rx="5" fill="#EB6A52"/>
+  <rect x="61" y="85" width="6" height="8" rx="2" fill="#2B2D32"/>
+</svg>

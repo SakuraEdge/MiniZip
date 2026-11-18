@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6f7f9" />
+    <meta name="description" content="MiniZip 本地文件与压缩包工作台。" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <title>MiniZip · 文件工作台</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="vendor/lucide.min.js" defer></script>
+    <script src="core.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body class="sidebar-collapsed">
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand-area">
+          <button class="icon-button mobile-nav-toggle" data-action="toggle-sidebar" aria-label="打开导航" title="打开导航"><i data-lucide="panel-left"></i></button>
+          <a class="brand" href="#" data-action="home" aria-label="MiniZip 工作台"><img class="brand-logo" src="assets/favicon.svg" alt="" /><span>Mini<span class="brand-light">Zip</span></span></a>
+        </div>
+        <div class="workspace-title"><span class="workspace-dot"></span><span>本地工作空间</span><i data-lucide="chevron-right"></i><span class="workspace-name">文件浏览</span></div>
+        <div class="header-actions"><span class="preview-tag">Dev v1.0.0</span><span class="header-divider"></span><button class="icon-button" data-action="about" title="关于 MiniZip" aria-label="关于 MiniZip"><i data-lucide="circle-help"></i></button><button class="icon-button" data-action="settings" title="偏好设置" aria-label="偏好设置"><i data-lucide="settings-2"></i></button></div>
+      </header>
+
+      <aside class="sidebar" aria-label="主导航">
+        <button class="nav-item sidebar-toggle" data-action="toggle-rail" title="展开侧栏" aria-label="展开侧栏" aria-expanded="false"><i data-lucide="panel-left-open"></i><span>收起侧栏</span></button>
+        <button class="button primary open-button" data-action="open" title="打开压缩包" aria-label="打开压缩包"><i data-lucide="folder-open"></i><span>打开压缩包</span><i class="open-plus" data-lucide="plus"></i></button>
+        <div class="nav-section">
+          <div class="section-caption">工作空间</div>
+          <nav>
+            <button class="nav-item active" data-action="navigate" data-page="browser" title="文件浏览" aria-label="文件浏览"><i data-lucide="layout-grid"></i><span>文件浏览</span></button>
+            <button class="nav-item" data-action="navigate" data-page="recent" title="最近打开" aria-label="最近打开"><i data-lucide="history"></i><span>最近打开</span><span class="nav-count" id="recent-count">0</span></button>
+            <button class="nav-item" data-action="navigate" data-page="favorites" title="我的收藏" aria-label="我的收藏"><i data-lucide="star"></i><span>我的收藏</span></button>
+            <button class="nav-item" data-action="navigate" data-page="tasks" title="解压任务" aria-label="解压任务"><i data-lucide="list-checks"></i><span>解压任务</span><span class="nav-count task-count" id="task-count" hidden>0</span></button>
+          </nav>
+        </div>
+        <div class="nav-section locations-section">
+          <div class="section-caption"><span>快速访问</span><button class="small-icon-button" data-action="open-folder" title="添加本地文件夹" aria-label="添加本地文件夹"><i data-lucide="plus"></i></button></div>
+          <button class="nav-item" data-action="open-folder" title="本地文件夹" aria-label="本地文件夹"><i data-lucide="folder"></i><span>本地文件夹</span><i class="nav-trailing" data-lucide="arrow-up-right"></i></button>
+          <button class="nav-item" data-action="create-archive" title="创建压缩包" aria-label="创建压缩包"><i data-lucide="folder-plus"></i><span>创建压缩包</span></button>
+        </div>
+        <div class="sidebar-bottom">
+          <button class="nav-item" data-action="navigate" data-page="updates" title="软件更新" aria-label="软件更新"><i data-lucide="download"></i><span>软件更新</span></button>
+          <button class="nav-item settings-item" data-action="settings" title="偏好设置" aria-label="偏好设置"><i data-lucide="settings-2"></i><span>偏好设置</span></button>
+        </div>
+      </aside>
+      <button class="sidebar-backdrop" data-action="toggle-sidebar" aria-label="收起导航" hidden></button>
+
+      <main class="workspace">
+        <div class="page-heading"><div><h1 id="page-title">文件浏览</h1></div><div class="page-heading-right"><button class="button secondary compact" data-action="open-folder"><i data-lucide="folder-plus"></i><span>打开文件夹</span></button></div></div>
+        <section id="browser-view" class="browser-view" aria-label="文件浏览器">
+          <div class="archive-summary" id="archive-summary"></div>
+          <div class="file-toolbar" id="file-toolbar">
+            <div class="toolbar-primary"><button class="button primary" id="extract-here-button" data-action="extract-here"><i data-lucide="folder-down"></i><span>解压到当前目录</span></button><button class="button secondary" id="extract-button" data-action="extract"><i data-lucide="arrow-down-to-line"></i><span>解压到…</span></button><button class="button secondary delete-button" id="delete-button" data-action="delete-selected" disabled><i data-lucide="trash-2"></i><span>删除所选</span></button><span class="toolbar-divider"></span><button class="icon-button" data-action="test" title="测试压缩包完整性" aria-label="测试压缩包完整性"><i data-lucide="shield-check"></i></button><button class="icon-button" data-action="toggle-favorite" id="favorite-button" aria-label="收藏压缩包" title="收藏压缩包"><i data-lucide="star"></i></button><div class="menu-anchor"><button class="icon-button" data-action="more" aria-label="更多操作" title="更多操作" aria-expanded="false" id="more-button"><i data-lucide="ellipsis"></i></button><div class="dropdown-menu" id="more-menu" hidden><button data-action="select-all"><i data-lucide="list-checks"></i>选择全部</button><button data-action="archive-info"><i data-lucide="info"></i>压缩包属性</button><button data-action="close-archive"><i data-lucide="x"></i>关闭当前压缩包</button></div></div></div>
+            <div class="toolbar-secondary"><label class="search-field"><i data-lucide="search"></i><input id="file-search" type="search" placeholder="搜索压缩包内的文件" autocomplete="off" aria-label="搜索当前目录" /></label><div class="view-switch" role="group" aria-label="文件视图"><button class="icon-button active" data-action="view" data-view="list" title="列表视图" aria-label="列表视图" aria-pressed="true"><i data-lucide="list"></i></button><button class="icon-button" data-action="view" data-view="grid" title="网格视图" aria-label="网格视图" aria-pressed="false"><i data-lucide="grid-2x2"></i></button></div><button class="icon-button detail-toggle active" data-action="toggle-details" title="显示或隐藏详情" aria-label="显示或隐藏详情" aria-pressed="true"><i data-lucide="panel-right"></i></button></div>
+          </div>
+          <div class="file-surface">
+            <div class="file-browser">
+              <div class="path-bar"><button class="small-icon-button" id="up-button" data-action="up" title="上一级" aria-label="上一级" disabled><i data-lucide="arrow-up"></i></button><span class="path-divider"></span><nav id="breadcrumbs" class="breadcrumbs" aria-label="当前位置"></nav><span id="folder-count" class="folder-count"></span></div>
+              <div class="selection-bar" id="selection-bar" hidden><span id="selection-text"></span><div><button class="text-button" data-action="extract-selected"><i data-lucide="arrow-down-to-line"></i>解压所选</button><button class="small-icon-button" data-action="clear-selection" title="取消选择" aria-label="取消选择"><i data-lucide="x"></i></button></div></div>
+              <div id="file-content" class="file-content"></div>
+              <div class="browser-footer"><span id="file-footer-count"></span><span class="footer-encoding"><span class="status-dot"></span>UTF-8 <span>·</span> <span id="archive-kind">ZIP</span></span></div>
+            </div>
+            <aside class="details-panel" id="details-panel" aria-label="详细信息"></aside>
+          </div>
+        </section>
+        <section id="collection-view" class="collection-view" aria-label="压缩包集合" hidden></section>
+        <section id="tasks-view" class="tasks-view" aria-label="解压任务" hidden></section>
+        <section id="updates-view" class="updates-view" aria-label="软件更新" hidden></section>
+      </main>
+      <footer class="statusbar"><span><span class="status-dot"></span><span id="global-status">就绪</span></span><span id="engine-status">浏览器预览</span><button class="status-task-button" data-action="navigate" data-page="tasks"><i data-lucide="list-checks"></i><span id="status-task-text">无进行中的任务</span></button></footer>
+    </div>
+    <input id="archive-input" type="file" accept=".zip,.rar,.7z,.lz4,.tar,.gz,.tgz,.bz2,.xz,.zst,.zstd,.cab,.iso,.arj,.lzh,.lzma,.br,.001,.002" hidden />
+    <input id="folder-input" type="file" webkitdirectory directory multiple hidden />
+    <div class="drop-overlay" id="drop-overlay" hidden><div><span class="drop-icon"><i data-lucide="folder-input"></i></span><h2>在这里打开压缩包</h2><p>ZIP · RAR · 7Z · TAR · LZ4</p></div></div>
+    <dialog id="app-dialog" class="app-dialog" aria-labelledby="dialog-title"></dialog>
+    <div class="toast-region" id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
+  </body>
+</html>

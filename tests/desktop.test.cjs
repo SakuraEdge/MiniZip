@@ -1,0 +1,142 @@
+"use strict";
+
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs/promises");
+const path = require("node:path");
+const { spawn } = require("node:child_process");
+const { _electron: electron, expect } = require("@playwright/test");
+const { safeRemoveOwned } = require("../desktop/archive-engine.cjs");
+const zip = require("@zip.js/zip.js");
+
+const workspace = path.resolve(__dirname, "..");
+const releaseConfig = require("../release-config.json");
+
+test("desktop bridge: genuine open, extract-here, extract-to, delete backup, Chinese password and preview", { timeout: 120000 }, async () => {
+  const testRoot = path.join(workspace, ".test-work");
+  await fs.mkdir(testRoot, { recursive: true });
+  const root = await fs.mkdtemp(path.join(testRoot, "desktop-"));
+  const source = path.join(root, "source");
+  await fs.mkdir(source);
+  await fs.writeFile(path.join(source, "说明.txt"), "MiniZip 真实桌面测试");
+  await fs.writeFile(path.join(source, "删除此文件.txt"), "remove me");
+  const archive = path.join(root, "桌面测试.zip");
+  await new Promise((resolve, reject) => {
+    const process = spawn(path.join(workspace, "engines/7zip/7z.exe"), ["a", "-tzip", archive, "*"], { cwd: source, windowsHide: true, stdio: "ignore" });
+    process.on("error", reject); process.on("close", (code) => code === 0 ? resolve() : reject(new Error("fixture failed")));
+  });
+  const original = await fs.readFile(archive);
+  const profile = path.join(root, "profile");
+  let application;
+  try {
+    const executablePath = process.env.MINIZIP_PACKAGED_EXE;
+    application = await electron.launch({ ...(executablePath ? { executablePath } : {}), args: executablePath ? [archive] : [workspace, archive], env: { ...process.env, MINIZIP_TEST_MODE: "1", MINIZIP_TEST_PROFILE: profile }, timeout: 45000 });
+    const page = await application.firstWindow();
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await expect(page.locator("#archive-summary h2")).toHaveText("桌面测试.zip", { timeout: 15000 });
+    await expect(page.locator("#engine-status")).toContainText("7-Zip");
+    await expect(page.locator("body")).toHaveClass(/sidebar-collapsed/);
+    await expect(page.locator("body")).not.toContainText("设计素材包");
+    await page.getByRole("button", { name: "展开侧栏", exact: true }).click();
+    await expect(page.locator("body")).toHaveClass(/sidebar-expanded/);
+    await page.getByRole("button", { name: "收起侧栏", exact: true }).click();
+    assert.equal(await page.evaluate(() => typeof window.require), "undefined");
+    assert.equal(await page.evaluate(() => typeof window.process), "undefined");
+    await page.getByRole("button", { name: "解压到当前目录", exact: true }).click();
+    await expect(page.locator(".task-card")).toHaveCount(1);
+    await expect(page.locator(".task-card-state").first()).toHaveText("已完成", { timeout: 15000 });
+    assert.equal(await fs.readFile(path.join(root, "说明.txt"), "utf8"), "MiniZip 真实桌面测试");
+    await page.locator('.nav-item[data-page="browser"]').click();
+    await page.locator('[data-file-id="说明.txt"]').dblclick();
+    await expect(page.locator(".preview-code")).toHaveText("MiniZip 真实桌面测试");
+    await page.getByRole("button", { name: "关闭对话框" }).click();
+    await page.getByRole("button", { name: "取消选择", exact: true }).click();
+    const output = path.join(root, "指定目录");
+    await fs.mkdir(output);
+    await application.evaluate(({ dialog }, target) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] }); }, output);
+    await page.getByRole("button", { name: "解压到…", exact: true }).click();
+    await page.getByRole("button", { name: "选择文件夹", exact: true }).click();
+    await expect(page.locator("#destination")).toHaveValue(output);
+    await page.locator("#create-subfolder").uncheck();
+    await page.getByRole("button", { name: "开始解压", exact: true }).click();
+    await expect(page.locator(".task-card")).toHaveCount(2);
+    await expect(page.locator(".task-card-state").first()).toHaveText("已完成", { timeout: 15000 });
+    assert.equal(await fs.readFile(path.join(output, "说明.txt"), "utf8"), "MiniZip 真实桌面测试");
+    await page.locator('.nav-item[data-page="browser"]').click();
+    await page.locator('[data-file-id="删除此文件.txt"]').click();
+    await expect(page.locator("#delete-button")).toBeEnabled();
+    await application.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); });
+    await page.locator("#delete-button").click();
+    await expect(page.locator(".task-card")).toHaveCount(3);
+    await expect(page.locator(".task-card-state").first()).toHaveText("已完成", { timeout: 15000 });
+    const backup = (await fs.readdir(root)).find((name) => name.includes(".minizip-backup-"));
+    assert.ok(backup);
+    assert.deepEqual(await fs.readFile(path.join(root, backup)), original);
+    await page.locator('.nav-item[data-page="browser"]').click();
+    await expect(page.locator(".file-table tbody tr")).toHaveCount(1);
+    await page.screenshot({ path: path.join(workspace, "screenshots/native-desktop.png"), fullPage: true });
+
+    const protectedPath = path.join(root, "中文密码.zip");
+    const writer = new zip.ZipWriter(new zip.Uint8ArrayWriter(), { password: "中文密码 2026", useWebWorkers: false });
+    await writer.add("中文文档.txt", new zip.TextReader("密码解密验证内容"));
+    await fs.writeFile(protectedPath, await writer.close());
+    await application.evaluate(({ dialog }, target) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] }); }, protectedPath);
+    await page.locator(".sidebar .open-button").click();
+    await expect(page.getByText("这是一个加密压缩包")).toBeVisible();
+    await page.getByRole("button", { name: "输入密码", exact: true }).click();
+    await page.locator("#archive-password").fill("错误密码");
+    await page.getByRole("button", { name: "解锁", exact: true }).click();
+    await expect(page.locator("#password-error")).toContainText("密码不正确");
+    await page.locator("#archive-password").fill("中文密码 2026");
+    await page.getByRole("button", { name: "解锁", exact: true }).click();
+    await expect(page.locator("dialog")).not.toBeVisible({ timeout: 15000 });
+    await expect(page.locator(".file-table tbody tr")).toHaveCount(1);
+    await page.getByRole("button", { name: "解压到当前目录", exact: true }).click();
+    await expect(page.locator(".task-card")).toHaveCount(4);
+    await expect(page.locator(".task-card-state").first()).toHaveText("已完成", { timeout: 15000 });
+    assert.equal(await fs.readFile(path.join(root, "中文文档.txt"), "utf8"), "密码解密验证内容");
+    await page.screenshot({ path: path.join(workspace, "screenshots/native-tasks.png"), fullPage: true });
+    await page.getByRole("button", { name: "软件更新", exact: true }).click();
+    await expect(page.locator(".update-current")).toContainText(releaseConfig.displayVersion);
+    await page.screenshot({ path: path.join(workspace, "screenshots/updates.png"), fullPage: true });
+    assert.deepEqual(errors, []);
+  } finally {
+    await application?.close();
+    await safeRemoveOwned(testRoot, root);
+  }
+});
+
+test("Explorer compression opens only the approved quick window and creates encrypted ZIP", { timeout: 90000 }, async () => {
+  const testRoot = path.join(workspace, ".test-work"); await fs.mkdir(testRoot, { recursive: true });
+  const root = await fs.mkdtemp(path.join(testRoot, "quick-desktop-"));
+  const source = path.join(root, "工作文档"); await fs.mkdir(source);
+  await fs.writeFile(path.join(source, "中文说明.txt"), "快速压缩的真实内容");
+  let application;
+  try {
+    const executablePath = process.env.MINIZIP_PACKAGED_EXE;
+    application = await electron.launch({ ...(executablePath ? { executablePath } : {}), args: [...(executablePath ? [] : [workspace]), "--compress", "--", source], env: { ...process.env, MINIZIP_TEST_MODE: "1", MINIZIP_TEST_PROFILE: path.join(root, "profile") }, timeout: 45000 });
+    const page = await application.firstWindow();
+    await expect(page.locator("#source-name")).toHaveText("工作文档", { timeout: 15000 });
+    assert.equal(application.windows().length, 1);
+    assert.ok(page.url().endsWith("quick.html"));
+    await expect(page.locator(".app-shell")).toHaveCount(0);
+    await expect(page.locator("#quick-destination")).toHaveValue(root);
+    const initialImage = await application.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString("base64"));
+    await fs.writeFile(path.join(workspace, "screenshots/quick-native.png"), Buffer.from(initialImage, "base64"));
+    await page.locator("#encrypt").check();
+    await page.locator("#quick-password").fill("中文密码 2026");
+    await page.getByRole("button", { name: "压缩", exact: true }).click();
+    await expect(page.locator("#phase")).toHaveText("压缩完成", { timeout: 20000 });
+    await expect(page.locator("#quick-password")).toHaveValue("");
+    const { ArchiveEngine } = require("../desktop/archive-engine.cjs");
+    const engine = new ArchiveEngine({ cacheRoot: path.join(root, "cache") });
+    const session = await engine.open(path.join(root, "工作文档.zip"), "中文密码 2026");
+    await engine.test(session);
+    assert.equal(session.flat.filter((entry) => !entry.folder).length, 1);
+    assert.equal(await fs.readFile(path.join(source, "中文说明.txt"), "utf8"), "快速压缩的真实内容");
+    await engine.close(session);
+    const completedImage = await application.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString("base64"));
+    await fs.writeFile(path.join(workspace, "screenshots/quick-complete.png"), Buffer.from(completedImage, "base64"));
+  } finally { await application?.close(); await safeRemoveOwned(testRoot, root); }
+});

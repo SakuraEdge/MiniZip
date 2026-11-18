@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MiniZip · Dev v1.0.0 设计审批</title>
+  <link rel="stylesheet" href="review.css" />
+  <script src="../../vendor/lucide.min.js" defer></script>
+  <script src="review.js" defer></script>
+</head>
+<body>
+  <header class="review-header"><div class="wordmark">Mini<span>Zip</span></div><div class="release-label">Dev v1.0.0 <span>设计审批</span></div></header>
+  <main>
+    <section class="icon-section" aria-labelledby="icon-title">
+      <div class="section-heading"><div><span class="section-number">01 / APPLICATION ICON</span><h1 id="icon-title">应用图标</h1></div><div class="icon-background-switch" role="group" aria-label="图标背景"><button type="button" data-background="light" class="active" aria-pressed="true" title="浅色背景"><i data-lucide="sun"></i></button><button type="button" data-background="dark" aria-pressed="false" title="深色背景"><i data-lucide="moon"></i></button></div></div>
+      <div class="icon-options">
+        <label class="icon-option selected" data-option="a"><div class="option-heading"><div><span class="option-letter">A</span><h2>拉链盒</h2></div><input type="radio" name="icon" value="a" checked aria-label="选择 A 拉链盒" /></div><div class="icon-stage"><img src="icons/a-zip-box.svg" alt="A 拉链盒图标" /></div><div class="option-caption">直观识别压缩文件，延续珊瑚色。</div><div class="size-strip"><span><img src="icons/a-zip-box.svg" width="16" height="16" alt="16 像素" /><small>16</small></span><span><img src="icons/a-zip-box.svg" width="24" height="24" alt="24 像素" /><small>24</small></span><span><img src="icons/a-zip-box.svg" width="32" height="32" alt="32 像素" /><small>32</small></span><span><img src="icons/a-zip-box.svg" width="48" height="48" alt="48 像素" /><small>48 px</small></span></div></label>
+        <label class="icon-option" data-option="b"><div class="option-heading"><div><span class="option-letter">B</span><h2>拉链文件夹</h2></div><input type="radio" name="icon" value="b" aria-label="选择 B 拉链文件夹" /></div><div class="icon-stage"><img src="icons/b-zip-folder.svg" alt="B 拉链文件夹图标" /></div><div class="option-caption">熟悉的文件夹轮廓，无外层底板。</div><div class="size-strip"><span><img src="icons/b-zip-folder.svg" width="16" height="16" alt="16 像素" /><small>16</small></span><span><img src="icons/b-zip-folder.svg" width="24" height="24" alt="24 像素" /><small>24</small></span><span><img src="icons/b-zip-folder.svg" width="32" height="32" alt="32 像素" /><small>32</small></span><span><img src="icons/b-zip-folder.svg" width="48" height="48" alt="48 像素" /><small>48 px</small></span></div></label>
+        <label class="icon-option" data-option="c"><div class="option-heading"><div><span class="option-letter">C</span><h2>M 字母标</h2></div><input type="radio" name="icon" value="c" aria-label="选择 C M 字母标" /></div><div class="icon-stage"><img src="icons/c-m-mark.svg" alt="C M 字母标图标" /></div><div class="option-caption">字母与拉链结合，品牌感更强。</div><div class="size-strip"><span><img src="icons/c-m-mark.svg" width="16" height="16" alt="16 像素" /><small>16</small></span><span><img src="icons/c-m-mark.svg" width="24" height="24" alt="24 像素" /><small>24</small></span><span><img src="icons/c-m-mark.svg" width="32" height="32" alt="32 像素" /><small>32</small></span><span><img src="icons/c-m-mark.svg" width="48" height="48" alt="48 像素" /><small>48 px</small></span></div></label>
+        <label class="icon-option" data-option="d"><div class="option-heading"><div><span class="option-letter">D</span><h2>轻量开箱</h2></div><input type="radio" name="icon" value="d" aria-label="选择 D 轻量开箱" /></div><div class="icon-stage"><img src="icons/d-open-box.svg" alt="D 轻量开箱图标" /></div><div class="option-caption">打开的归档盒，强调解压动作。</div><div class="size-strip"><span><img src="icons/d-open-box.svg" width="16" height="16" alt="16 像素" /><small>16</small></span><span><img src="icons/d-open-box.svg" width="24" height="24" alt="24 像素" /><small>24</small></span><span><img src="icons/d-open-box.svg" width="32" height="32" alt="32 像素" /><small>32</small></span><span><img src="icons/d-open-box.svg" width="48" height="48" alt="48 像素" /><small>48 px</small></span></div></label>
+      </div>
+      <div class="context-strip"><div class="context-item"><span class="context-label">窗口标题栏</span><div class="titlebar-example"><img class="chosen-icon" src="icons/a-zip-box.svg" alt="选中的图标" /><span>MiniZip</span><span class="context-version">Dev v1.0.0</span></div></div><div class="context-item"><span class="context-label">文件关联</span><div class="file-example"><img class="chosen-icon" src="icons/a-zip-box.svg" alt="关联图标" /><span>工作文档.zip</span><span class="context-version">MiniZip 压缩文件</span></div></div><div class="context-item"><span class="context-label">深色任务栏</span><div class="taskbar-example"><i data-lucide="folder"></i><span class="running-app"><img class="chosen-icon" src="icons/a-zip-box.svg" alt="任务栏图标" /></span><i data-lucide="settings-2"></i></div></div></div>
+    </section>
+
+    <section class="quick-section" aria-labelledby="quick-title">
+      <div class="section-heading"><div><span class="section-number">02 / QUICK COMPRESS</span><h1 id="quick-title">右键快速压缩</h1></div><span class="draft-label">独立小窗口 · 审批稿</span></div>
+      <div class="quick-layout">
+        <div class="quick-stage">
+          <section class="quick-window" role="region" aria-label="MiniZip 快速压缩窗口">
+            <header class="quick-titlebar"><img class="chosen-icon" src="icons/a-zip-box.svg" alt="" /><span>MiniZip</span><span class="quick-titlebar-divider"></span><strong>快速压缩</strong><button type="button" class="window-close" data-action="cancel" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button></header>
+            <form id="quick-form">
+              <div class="quick-body">
+                <div class="source-line"><span class="source-icon"><i data-lucide="folder"></i></span><div><h2>工作文档</h2><p>1 个文件夹 <span>·</span> 24 个文件 <span>·</span> 18.6 MB</p></div></div>
+                <div class="quick-fields"><label class="name-field">压缩包名称<div class="name-input"><input name="filename" id="archive-name" value="工作文档" autocomplete="off" required /><span id="extension">.zip</span></div></label><label class="format-field">格式<select id="archive-format" name="format"><option value="zip">ZIP</option><option value="7z">7Z</option></select></label></div>
+                <label class="destination-field">保存位置<div class="path-input"><input id="quick-destination" name="destination" value="D:\工作" autocomplete="off" required /><button type="button" class="browse-button" data-action="browse" title="选择保存文件夹" aria-label="选择保存文件夹"><i data-lucide="folder-open"></i></button></div></label>
+                <div class="options-row"><label>压缩级别<select name="level"><option value="fast">快速</option><option value="normal" selected>标准</option><option value="maximum">更小体积</option></select></label><label class="password-check"><input type="checkbox" id="encrypt" />密码保护<i data-lucide="lock-keyhole"></i></label></div>
+                <div class="password-field" id="password-field" hidden><label for="quick-password">密码</label><div class="path-input"><input type="password" id="quick-password" placeholder="输入密码" autocomplete="off" /><button type="button" class="browse-button" data-action="show-password" title="显示密码" aria-label="显示密码"><i data-lucide="eye"></i></button></div></div>
+                <div class="quick-error" id="quick-error" role="alert" hidden></div>
+              </div>
+              <footer class="quick-footer"><span id="quick-status" role="status"></span><button type="button" class="secondary-button" data-action="cancel">取消</button><button type="submit" class="primary-button"><i data-lucide="archive"></i>压缩</button></footer>
+            </form>
+          </section>
+        </div>
+        <div class="review-notes"><h2>确认范围</h2><dl><div><dt>启动方式</dt><dd>文件或文件夹右键 → 添加到压缩文件…</dd></div><div><dt>窗口</dt><dd>只打开快速压缩小窗口，不显示主工作台。</dd></div><div><dt>默认值</dt><dd>同级目录、原文件名、ZIP、标准压缩。</dd></div><div><dt>原文件</dt><dd>保持不变；遇到同名压缩包需再次确认。</dd></div></dl><p class="approval-note">图标与此窗口均待确认，未接入真实压缩。</p></div>
+      </div>
+    </section>
+  </main>
+  <footer class="review-footer"><span>MiniZip / Dev v1.0.0</span><span>未替换正式图标 · 未发布安装包</span></footer>
+</body>
+</html>

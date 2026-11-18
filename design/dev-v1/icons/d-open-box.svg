@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128" fill="none">
+  <title>MiniZip D - Open Box</title>
+  <path d="M32 51L64 34L96 51V91C96 94 94 97 91 98L69 110C66 112 62 112 59 110L37 98C34 97 32 94 32 91V51Z" fill="#D15C48"/>
+  <path d="M32 53L64 70V112L37 98C34 97 32 94 32 91V53Z" fill="#EB6A52"/>
+  <path d="M32 54L12 42C9 40 9 36 12 34L40 18C42 17 45 17 47 19L64 34L32 54Z" fill="#F5A08C"/>
+  <path d="M64 34L81 19C83 17 86 17 88 18L116 34C119 36 119 40 116 42L96 54L64 34Z" fill="#ED8068"/>
+  <path d="M64 34L96 51L64 69L32 51L64 34Z" fill="#A74435"/>
+  <path d="M58 63H70V80H81L64 98L47 80H58V63Z" fill="#FFFFFF"/>
+</svg>
