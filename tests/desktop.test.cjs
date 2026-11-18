@@ -13,7 +13,11 @@ const workspace = path.resolve(__dirname, "..");
 const releaseConfig = require("../release-config.json");
 
 async function captureWindow(application, filename) {
-  const image = await application.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString("base64"));
+  const image = await application.evaluate(async ({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows()[0].webContents;
+    await contents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    return (await contents.capturePage()).toPNG().toString("base64");
+  });
   const png = Buffer.from(image, "base64");
   assert.ok(png.length > 1000, "Native window capture must contain rendered pixels");
   await fs.mkdir(path.join(workspace, "screenshots"), { recursive: true });
