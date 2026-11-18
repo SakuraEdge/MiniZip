@@ -138,47 +138,55 @@ class ArchiveEngine {
   }
   async run(binary, args, options = {}) {
     if (options.signal?.aborted) fail("CANCELLED", "操作已取消。");
-    const child = spawn(binary, args, { windowsHide: true, shell: false, cwd: options.cwd, stdio: ["pipe", "pipe", "pipe"] });
-    child.stdin.on("error", () => {});
-    child.stdin.end(options.input ?? ((options.password || "") + "\n"), "utf8");
-    let stdout = "";
-    let stderr = "";
-    let overflow = false;
-    let bytes = 0;
-    const cancel = () => child.kill();
-    options.signal?.addEventListener("abort", cancel, { once: true });
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk) => { if (stderr.length < 1024 * 1024) stderr += chunk; });
-    let streamPromise = null;
-    if (options.outputFile) {
-      const limiter = new Transform({ transform(chunk, encoding, callback) {
-        bytes += chunk.length;
-        if (bytes > (options.maxBytes || MAX_BYTES)) { overflow = true; child.kill(); callback(new ArchiveError("LIMIT", "输出超过安全大小上限。")); return; }
-        options.onBytes?.(bytes);
-        callback(null, chunk);
-      } });
-      streamPromise = pipeline(child.stdout, limiter, createWriteStream(options.outputFile, { flags: "wx" })).catch((error) => { child.kill(); return error; });
-    } else {
-      child.stdout.setEncoding("utf8");
-      child.stdout.on("data", (chunk) => {
-        if (stdout.length + chunk.length > (options.maxOutput || MAX_LISTING)) { overflow = true; child.kill(); return; }
-        stdout += chunk;
-        const matches = [...chunk.matchAll(/(\d{1,3})%/g)];
-        if (matches.length) options.onProgress?.(Math.min(99, Number(matches.at(-1)[1])));
-      });
-    }
-    let code;
-    try { code = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", resolve); }); }
-    finally { options.signal?.removeEventListener("abort", cancel); }
-    const streamError = streamPromise ? await streamPromise : null;
-    if (options.signal?.aborted) fail("CANCELLED", "操作已取消，未提交解压结果。");
-    if (overflow) fail("LIMIT", "数据量超过当前安全上限，操作已停止。");
-    if (streamError) throw streamError;
-    if (code !== 0) {
-      if (PASSWORD_ERROR.test(stdout + stderr)) fail(options.password ? "WRONG_PASSWORD" : "PASSWORD_REQUIRED", options.password ? "密码不正确，或加密数据已损坏。" : "此压缩包需要密码。");
-      fail("ENGINE_ERROR", /not enough space|disk full/i.test(stdout + stderr) ? "磁盘空间不足。" : "压缩包读取失败，可能已损坏、缺少分卷或使用了不受支持的编码。");
-    }
-    return { stdout, stderr, bytes };
+    // Open paths in Node so native tools with ANSI-only argv can read Unicode files.
+    const input = options.inputFile ? await fs.open(options.inputFile, "r") : null;
+    try {
+      const child = spawn(binary, args, { windowsHide: true, shell: false, cwd: options.cwd, stdio: [input ? input.fd : "pipe", "pipe", "pipe"] });
+      const completion = new Promise((resolve, reject) => { child.once("error", reject); child.once("close", resolve); });
+      if (child.stdin) {
+        child.stdin.on("error", () => {});
+        child.stdin.end(options.input ?? ((options.password || "") + "\n"), "utf8");
+      }
+      let stdout = "";
+      let stderr = "";
+      let overflow = false;
+      let bytes = 0;
+      const cancel = () => child.kill();
+      options.signal?.addEventListener("abort", cancel, { once: true });
+      if (options.signal?.aborted) cancel();
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => { if (stderr.length < 1024 * 1024) stderr += chunk; });
+      let streamPromise = null;
+      if (options.outputFile) {
+        const limiter = new Transform({ transform(chunk, encoding, callback) {
+          bytes += chunk.length;
+          if (bytes > (options.maxBytes || MAX_BYTES)) { overflow = true; child.kill(); callback(new ArchiveError("LIMIT", "输出超过安全大小上限。")); return; }
+          options.onBytes?.(bytes);
+          callback(null, chunk);
+        } });
+        streamPromise = pipeline(child.stdout, limiter, createWriteStream(options.outputFile, { flags: "wx" })).catch((error) => { child.kill(); return error; });
+      } else {
+        child.stdout.setEncoding("utf8");
+        child.stdout.on("data", (chunk) => {
+          if (stdout.length + chunk.length > (options.maxOutput || MAX_LISTING)) { overflow = true; child.kill(); return; }
+          stdout += chunk;
+          const matches = [...chunk.matchAll(/(\d{1,3})%/g)];
+          if (matches.length) options.onProgress?.(Math.min(99, Number(matches.at(-1)[1])));
+        });
+      }
+      let code;
+      try { code = await completion; }
+      finally { options.signal?.removeEventListener("abort", cancel); }
+      const streamError = streamPromise ? await streamPromise : null;
+      if (options.signal?.aborted) fail("CANCELLED", "操作已取消，未提交解压结果。");
+      if (overflow) fail("LIMIT", "数据量超过当前安全上限，操作已停止。");
+      if (streamError) throw streamError;
+      if (code !== 0) {
+        if (PASSWORD_ERROR.test(stdout + stderr)) fail(options.password ? "WRONG_PASSWORD" : "PASSWORD_REQUIRED", options.password ? "密码不正确，或加密数据已损坏。" : "此压缩包需要密码。");
+        fail("ENGINE_ERROR", /not enough space|disk full/i.test(stdout + stderr) ? "磁盘空间不足。" : "压缩包读取失败，可能已损坏、缺少分卷或使用了不受支持的编码。");
+      }
+      return { stdout, stderr, bytes };
+    } finally { await input?.close(); }
   }
   async list(filePath, password = "", options = {}) {
     const result = await this.run(this.sevenZip, ["l", "-slt", "-sccUTF-8", "-bd", "--", filePath], { ...options, password });
@@ -200,7 +208,7 @@ class ArchiveEngine {
     archive.date = new Date(identity.mtimeMs).toLocaleString("sv-SE").slice(0, 16);
     try {
       if (/\.lz4$/i.test(name)) {
-        await this.run(this.lz4, ["--list", filePath], options);
+        await this.run(this.lz4, ["-t", "-"], { ...options, inputFile: filePath });
         archive.format = "LZ4"; archive.method = "LZ4"; session.type = "lz4";
         const outName = normalizeEntryPath(name.replace(/\.lz4$/i, "") || "output");
         session.flat = [{ path: outName, folder: false, size: null, packed: identity.size, date: archive.date, encrypted: false }];
@@ -236,7 +244,7 @@ class ArchiveEngine {
       if (!archive.locked && /(?:\.tar\.(?:gz|bz2|xz|zst|lz4)|\.(?:tgz|tbz2|txz|tzst))$/i.test(name)) {
         session.cache = await fs.mkdtemp(path.join(this.cacheRoot, "container-"));
         const innerPath = path.join(session.cache, "content.tar");
-        if (session.type === "lz4") await this.run(this.lz4, ["-d", "-c", filePath], { ...options, outputFile: innerPath });
+        if (session.type === "lz4") await this.run(this.lz4, ["-d", "-c", "-"], { ...options, inputFile: filePath, outputFile: innerPath });
         else {
           if (session.flat.filter((entry) => !entry.folder).length !== 1) fail("INVALID_ARCHIVE", "嵌套 TAR 容器结构不正确。");
           await this.run(this.sevenZip, ["x", "-so", "-sccUTF-8", "-bsp0", "--", filePath], { ...options, password, outputFile: innerPath });
@@ -268,7 +276,7 @@ class ArchiveEngine {
   async test(session, options = {}) {
     await this.assertUnchanged(session);
     if (session.type === "zip-compat") await this.zipOperation(session, session.flat, null, options);
-    else if (session.type === "lz4") await this.run(this.lz4, ["-t", session.actualPath], options);
+    else if (session.type === "lz4") await this.run(this.lz4, ["-t", "-"], { ...options, inputFile: session.actualPath });
     else await this.run(this.sevenZip, ["t", "-sccUTF-8", "-bsp1", "--", session.actualPath], { ...options, password: session.password });
     return { files: session.flat.filter((entry) => !entry.folder).length };
   }
@@ -305,8 +313,8 @@ class ArchiveEngine {
       } else if (session.type === "lz4" || session.type === "stream") {
         const target = path.join(stage, flat[0].path);
         const binary = session.type === "lz4" ? this.lz4 : this.sevenZip;
-        const args = session.type === "lz4" ? ["-d", "-c", session.actualPath] : ["x", "-so", "-bsp0", "--", session.actualPath];
-        await this.run(binary, args, { ...options, outputFile: target, maxBytes: Math.min(MAX_BYTES, Math.floor(available / 2) - 64 * 1024 ** 2) });
+        const args = session.type === "lz4" ? ["-d", "-c", "-"] : ["x", "-so", "-bsp0", "--", session.actualPath];
+        await this.run(binary, args, { ...options, inputFile: session.type === "lz4" ? session.actualPath : undefined, outputFile: target, maxBytes: Math.min(MAX_BYTES, Math.floor(available / 2) - 64 * 1024 ** 2) });
       } else {
         const selectionFile = await this.selectionFile(flat, work);
         await this.run(this.sevenZip, ["x", "-y", "-aoa", "-sccUTF-8", "-scsUTF-8", "-bsp1", "-bb0", "-spd", "-o" + stage, session.actualPath, "@" + selectionFile], { ...options, password: session.password });

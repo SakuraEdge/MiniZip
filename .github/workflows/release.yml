@@ -26,9 +26,20 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run test:ui
-      - run: npm run test:desktop
       - run: npm run build
+      - name: Test packaged desktop application
+        shell: pwsh
+        run: |
+          $config = Get-Content release-config.json -Raw | ConvertFrom-Json
+          $env:MINIZIP_PACKAGED_EXE = Join-Path $PWD "release/MiniZip-$($config.channel)-$($config.version)/MiniZip-win32-x64/MiniZip.exe"
+          npm run test:desktop
       - run: npm run installer
+      - name: Test installation and uninstallation
+        shell: pwsh
+        run: |
+          $config = Get-Content release-config.json -Raw | ConvertFrom-Json
+          $installer = "release/MiniZip-$($config.channel)-$($config.version)/$($config.installerName)"
+          ./scripts/test-installer.ps1 -Installer $installer
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:

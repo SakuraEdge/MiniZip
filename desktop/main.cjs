@@ -367,7 +367,7 @@ function queueQuickWindow(paths) {
 
 async function createWindow() {
   closing = false;
-  mainWindow = new BrowserWindow({ width: 1320, height: 870, minWidth: 780, minHeight: 620, title: "MiniZip", icon: path.resolve(__dirname, "../assets/minizip.ico"), backgroundColor: "#f6f7f9", show: !testMode, autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, navigateOnDragDrop: false, devTools: !app.isPackaged } });
+  mainWindow = new BrowserWindow({ width: 1320, height: 870, minWidth: 780, minHeight: 620, title: "MiniZip", icon: path.resolve(__dirname, "../assets/minizip.ico"), backgroundColor: "#f6f7f9", show: !testMode, autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, navigateOnDragDrop: false, backgroundThrottling: !testMode, devTools: !app.isPackaged } });
   Menu.setApplicationMenu(null);
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event, url) => { if (url !== entryUrl) event.preventDefault(); });

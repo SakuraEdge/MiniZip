@@ -12,6 +12,14 @@ const zip = require("@zip.js/zip.js");
 const workspace = path.resolve(__dirname, "..");
 const releaseConfig = require("../release-config.json");
 
+async function captureWindow(application, filename) {
+  const image = await application.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString("base64"));
+  const png = Buffer.from(image, "base64");
+  assert.ok(png.length > 1000, "Native window capture must contain rendered pixels");
+  await fs.mkdir(path.join(workspace, "screenshots"), { recursive: true });
+  await fs.writeFile(path.join(workspace, "screenshots", filename), png);
+}
+
 test("desktop bridge: genuine open, extract-here, extract-to, delete backup, Chinese password and preview", { timeout: 120000 }, async () => {
   const testRoot = path.join(workspace, ".test-work");
   await fs.mkdir(testRoot, { recursive: true });
@@ -75,7 +83,7 @@ test("desktop bridge: genuine open, extract-here, extract-to, delete backup, Chi
     assert.deepEqual(await fs.readFile(path.join(root, backup)), original);
     await page.locator('.nav-item[data-page="browser"]').click();
     await expect(page.locator(".file-table tbody tr")).toHaveCount(1);
-    await page.screenshot({ path: path.join(workspace, "screenshots/native-desktop.png"), fullPage: true });
+    await captureWindow(application, "native-desktop.png");
 
     const protectedPath = path.join(root, "中文密码.zip");
     const writer = new zip.ZipWriter(new zip.Uint8ArrayWriter(), { password: "中文密码 2026", useWebWorkers: false });
@@ -96,10 +104,10 @@ test("desktop bridge: genuine open, extract-here, extract-to, delete backup, Chi
     await expect(page.locator(".task-card")).toHaveCount(4);
     await expect(page.locator(".task-card-state").first()).toHaveText("已完成", { timeout: 15000 });
     assert.equal(await fs.readFile(path.join(root, "中文文档.txt"), "utf8"), "密码解密验证内容");
-    await page.screenshot({ path: path.join(workspace, "screenshots/native-tasks.png"), fullPage: true });
+    await captureWindow(application, "native-tasks.png");
     await page.getByRole("button", { name: "软件更新", exact: true }).click();
     await expect(page.locator(".update-current")).toContainText(releaseConfig.displayVersion);
-    await page.screenshot({ path: path.join(workspace, "screenshots/updates.png"), fullPage: true });
+    await captureWindow(application, "updates.png");
     assert.deepEqual(errors, []);
   } finally {
     await application?.close();
@@ -122,8 +130,7 @@ test("Explorer compression opens only the approved quick window and creates encr
     assert.ok(page.url().endsWith("quick.html"));
     await expect(page.locator(".app-shell")).toHaveCount(0);
     await expect(page.locator("#quick-destination")).toHaveValue(root);
-    const initialImage = await application.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString("base64"));
-    await fs.writeFile(path.join(workspace, "screenshots/quick-native.png"), Buffer.from(initialImage, "base64"));
+    await captureWindow(application, "quick-native.png");
     await page.locator("#encrypt").check();
     await page.locator("#quick-password").fill("中文密码 2026");
     await page.getByRole("button", { name: "压缩", exact: true }).click();
@@ -136,7 +143,6 @@ test("Explorer compression opens only the approved quick window and creates encr
     assert.equal(session.flat.filter((entry) => !entry.folder).length, 1);
     assert.equal(await fs.readFile(path.join(source, "中文说明.txt"), "utf8"), "快速压缩的真实内容");
     await engine.close(session);
-    const completedImage = await application.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString("base64"));
-    await fs.writeFile(path.join(workspace, "screenshots/quick-complete.png"), Buffer.from(completedImage, "base64"));
+    await captureWindow(application, "quick-complete.png");
   } finally { await application?.close(); await safeRemoveOwned(testRoot, root); }
 });

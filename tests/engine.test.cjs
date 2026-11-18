@@ -4,7 +4,7 @@ const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const { ArchiveEngine, normalizeEntryPath, parseListing, safeRemoveOwned } = require("../desktop/archive-engine.cjs");
 const zip = require("@zip.js/zip.js");
 
@@ -27,6 +27,12 @@ async function createArchive(name, type, extra = []) {
   return destination;
 }
 async function destination(name) { const value = path.join(root, name); await fs.mkdir(value, { recursive: true }); return value; }
+async function createLz4(input, output) {
+  const result = spawnSync(engine.lz4, ["-z", "-c", "-"], { input: await fs.readFile(input), windowsHide: true, maxBuffer: 16 * 1024 ** 2 });
+  if (result.error) throw result.error;
+  assert.equal(result.status, 0, result.stderr.toString());
+  await fs.writeFile(output, result.stdout, { flag: "wx" });
+}
 
 before(async () => {
   await fs.mkdir(path.join(workspace, ".test-work"), { recursive: true });
@@ -158,23 +164,41 @@ test("destination junctions cannot redirect extraction outside the chosen folder
   assert.deepEqual(await fs.readdir(outside), []);
 });
 
-test("LZ4 is decoded using the native frame decoder", async () => {
-  const archivePath = path.join(root, "真实内容.txt.lz4");
-  await run(engine.lz4, ["-f", path.join(source, "说明.txt"), archivePath]);
+test("LZ4 native decoding supports Unicode paths independent of Windows locale", async () => {
+  const directory = await destination("LZ4-中文-\u{1F5C3}");
+  const archivePath = path.join(directory, "真实内容.txt.lz4");
+  await createLz4(path.join(source, "说明.txt"), archivePath);
   const session = await engine.open(archivePath);
   assert.equal(session.archive.format, "LZ4");
   assert.equal(session.archive.canDelete, false);
   await engine.test(session);
   const result = await engine.extract(session, await destination("lz4-output"), { policy: "rename" });
   assert.equal(await fs.readFile(path.join(result.destination, "真实内容.txt"), "utf8"), contents);
+  await engine.close(session);
+});
+
+test("LZ4 rejects corrupt frames and cancelled extraction leaves no output", async () => {
+  const archivePath = path.join(root, "cancel.lz4");
+  await createLz4(path.join(source, "说明.txt"), archivePath);
+  const session = await engine.open(archivePath);
+  const controller = new AbortController();
+  const target = await destination("cancel-lz4");
+  await assert.rejects(engine.extract(session, target, { signal: controller.signal, onPhase: () => controller.abort(), policy: "rename" }), { code: "CANCELLED" });
+  assert.deepEqual(await fs.readdir(target), []);
+  await engine.close(session);
+  const corrupt = path.join(root, "corrupt.lz4");
+  const bytes = await fs.readFile(archivePath);
+  bytes[bytes.length - 1] ^= 0xff;
+  await fs.writeFile(corrupt, bytes);
+  await assert.rejects(engine.open(corrupt), { code: "ENGINE_ERROR" });
 });
 
 test("nested tar.gz and tar.lz4 expose actual TAR contents", async () => {
-  const tarPath = await createArchive("nested.tar", "tar");
+  const tarPath = await createArchive("嵌套-\u{1F5C3}.tar", "tar");
   for (const kind of ["gz", "lz4"]) {
     const archivePath = tarPath + "." + kind;
     if (kind === "gz") await run(engine.sevenZip, ["a", "-tgzip", archivePath, tarPath]);
-    else await run(engine.lz4, ["-f", tarPath, archivePath]);
+    else await createLz4(tarPath, archivePath);
     const session = await engine.open(archivePath);
     assert.equal(session.archive.format.startsWith("TAR."), true);
     assert.equal(session.archive.canDelete, false);
