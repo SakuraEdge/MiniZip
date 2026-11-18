@@ -99,6 +99,10 @@ for (const format of ["zip-aes", "zip-crypto", "7z"]) {
     assert.equal((await engine.open(archive)).archive.locked, true);
     assert.equal((await engine.preview(result.session, "文档/说明.txt")).content, "外部编辑后的内容");
     assert.equal((await engine.preview(result.session, "unchanged.txt")).content, "still encrypted");
+    const savedBytes = await fs.readFile(archive);
+    const cancelled = new AbortController();
+    await assert.rejects(engine.updateEntries(result.session, [await replacement("cancel-" + format)], { signal: cancelled.signal, onPhase(phase) { if (phase === "updating") cancelled.abort(); } }), { code: "CANCELLED" });
+    assert.deepEqual(await fs.readFile(archive), savedBytes);
     await engine.close(result.session);
   });
 }

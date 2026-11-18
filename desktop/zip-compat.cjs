@@ -53,13 +53,17 @@ async function replaceEntries(filePath, destination, replacements, password, opt
   const handle = await fs.open(destination, "wx");
   const source = new FileReader(filePath);
   const writable = new WritableStream({ async write(chunk) {
+    if (options.signal?.aborted) throw Object.assign(new Error("保存已取消。"), { code: "CANCELLED" });
     let offset = 0;
     while (offset < chunk.length) { const result = await handle.write(chunk, offset, chunk.length - offset); offset += result.bytesWritten; }
   } });
   const writer = new zip.ZipWriter(writable, { useWebWorkers: false });
   try {
     const names = new Set(replacements.map((item) => item.entryId));
-    await writer.appendZip(source, { filter: (entry) => !names.has(entry.filename.replace(/\\/g, "/")) });
+    await writer.appendZip(source, { filter: (entry) => {
+      if (options.signal?.aborted) throw Object.assign(new Error("保存已取消。"), { code: "CANCELLED" });
+      return !names.has(entry.filename.replace(/\\/g, "/"));
+    } });
     let archiveComment;
     await readEntries(filePath, async (entries, reader) => {
       archiveComment = reader.comment;
@@ -74,7 +78,8 @@ async function replaceEntries(filePath, destination, replacements, password, opt
       }
     });
     await writer.close(archiveComment);
-  } finally { await source.handle?.close(); await handle.close(); }
+  } catch (error) { throw normalizeZipError(error, options.signal?.aborted); }
+  finally { await source.handle?.close(); await handle.close(); }
 }
 
 function normalizeZipError(error, aborted) {
