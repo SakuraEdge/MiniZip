@@ -29,7 +29,8 @@
     history: [],
     favorites: new Set(),
     sidebarExpanded: preferences.sidebarExpanded === true,
-    update: { status: "idle", current: "Dev v1.0.0", repository: null, autoCheck: true, allowDev: true, available: null, error: null },
+    update: { status: "idle", current: "Dev v1.0.1", repository: null, autoCheck: true, allowDev: true, available: null, error: null },
+    edits: { count: 0, entries: [], canUpdate: false, busy: false },
     tasks: [],
     taskTab: "all",
     dialog: null,
@@ -50,7 +51,20 @@
   function acceptNativeArchive(archive, focus = true) {
     if (!archive) return;
     archives.set(archive.id, archive);
-    if (focus) { openArchive(archive.id); return; }
+    if (focus) {
+      state.edits = { count: 0, entries: [], canUpdate: Boolean(archive.canUpdate), busy: false };
+      openArchive(archive.id);
+      if (archive.launchAction?.startsWith("extract")) {
+        const mode = archive.launchAction;
+        delete archive.launchAction;
+        setTimeout(() => {
+          if (mode === "extract-here") extractHere().catch((error) => toast(error.message, true));
+          else if (mode === "extract-folder") extractFolder().catch((error) => toast(error.message, true));
+          else showExtraction();
+        }, 50);
+      }
+      return;
+    }
     if (state.archive?.id === archive.id) {
       state.archive = archive;
       state.selection.clear(); state.focusedId = null;
@@ -127,9 +141,20 @@
     else if (state.page === "tasks") renderTasks();
     else if (state.page === "updates") renderUpdates();
     else renderCollection();
+    renderEditNotice();
     updateTaskStatus();
     $("#recent-count").textContent = state.history.length;
     paintIcons();
+  }
+
+  function renderEditNotice() {
+    const notice = $("#edit-notice");
+    const value = state.edits;
+    notice.hidden = !state.archive || !value.count;
+    if (notice.hidden) return;
+    const names = value.entries.map((entry) => entry.entryId + (entry.missing ? "（副本不可读取）" : "")).join("、");
+    notice.innerHTML = `<div class="edit-message">${icon("file-pen-line")}<div><strong>${value.count} 个文件有改动，是否保存到压缩包？</strong><span>${e(names)}</span>${!value.canUpdate ? `<span>此格式不支持写回，可另存修改后的文件。</span>` : ""}</div></div><div class="edit-actions"><button class="icon-button" data-action="reveal-edits" aria-label="打开工作副本" title="打开工作副本">${icon("folder-open")}</button><button class="button secondary" data-action="export-edits" ${value.busy ? "disabled" : ""}>${icon("save-all")}另存副本</button>${value.canUpdate ? `<button class="button primary" data-action="save-edits" ${value.busy || value.entries.some((entry) => entry.missing) ? "disabled" : ""}>${icon("save")}保存到压缩包</button>` : ""}</div>`;
+    paintIcons(notice);
   }
 
   function renderBrowser() {
@@ -233,7 +258,7 @@
     const panel = $("#details-panel");
     const heading = `<div class="details-heading"><span>${item ? "文件信息" : "压缩包信息"}</span><button class="small-icon-button" data-action="close-details" aria-label="隐藏详情" title="隐藏详情">${icon("panel-right-close")}</button></div>`;
     if (item && !isLocked()) {
-      panel.innerHTML = `${heading}<div class="detail-preview">${item.thumbnail ? `<img class="details-photo" src="${e(item.thumbnail)}" alt="${e(item.name)}" />` : fileIcon(item, true)}<strong class="detail-preview-name" title="${e(item.name)}">${e(item.name)}</strong><span class="detail-preview-subtitle">${e(item.type)}</span></div><div class="detail-section"><div class="detail-section-title">基本信息</div><dl><div><dt>文件大小</dt><dd>${C.formatBytes(item.size)}</dd></div>${!archive.folder ? `<div><dt>压缩后</dt><dd>${C.formatBytes(item.packed)}</dd></div>` : ""}<div><dt>修改时间</dt><dd>${e(item.date || "—")}</dd></div>${item.dimensions ? `<div><dt>图像尺寸</dt><dd>${e(item.dimensions)}</dd></div>` : ""}<div><dt>位置</dt><dd>${e(archive.name)}</dd></div></dl></div><div class="detail-actions"><button class="button secondary" data-action="open-item" data-id="${e(item.id)}">${icon(item.kind === "folder" ? "folder-open" : "eye")}${item.kind === "folder" ? "打开文件夹" : "预览文件"}</button>${!archive.folder ? `<button class="button subtle" data-action="extract-item" data-id="${e(item.id)}">${icon("arrow-down-to-line")}解压此${item.kind === "folder" ? "文件夹" : "文件"}</button>` : ""}</div>`;
+      panel.innerHTML = `${heading}<div class="detail-preview">${item.thumbnail ? `<img class="details-photo" src="${e(item.thumbnail)}" alt="${e(item.name)}" />` : fileIcon(item, true)}<strong class="detail-preview-name" title="${e(item.name)}">${e(item.name)}</strong><span class="detail-preview-subtitle">${e(item.type)}</span></div><div class="detail-section"><div class="detail-section-title">基本信息</div><dl><div><dt>文件大小</dt><dd>${C.formatBytes(item.size)}</dd></div>${!archive.folder ? `<div><dt>压缩后</dt><dd>${C.formatBytes(item.packed)}</dd></div>` : ""}<div><dt>修改时间</dt><dd>${e(item.date || "—")}</dd></div>${item.dimensions ? `<div><dt>图像尺寸</dt><dd>${e(item.dimensions)}</dd></div>` : ""}<div><dt>位置</dt><dd>${e(archive.name)}</dd></div></dl></div><div class="detail-actions"><button class="button secondary" data-action="open-item" data-id="${e(item.id)}">${icon(item.kind === "folder" ? "folder-open" : state.archive.native ? "external-link" : "eye")}${item.kind === "folder" ? "打开文件夹" : state.archive.native ? item.kind === "archive" ? "在新工作台打开" : "打开文件" : "预览文件"}</button>${state.archive.native && ["text", "image"].includes(item.kind) ? `<button class="button subtle" data-action="preview-item" data-id="${e(item.id)}">${icon("eye")}预览文件</button>` : ""}${!archive.folder ? `<button class="button subtle" data-action="extract-item" data-id="${e(item.id)}">${icon("arrow-down-to-line")}解压此${item.kind === "folder" ? "文件夹" : "文件"}</button>` : ""}</div>`;
       return;
     }
     const counts = C.countEntries(archive.entries || []);
@@ -280,10 +305,10 @@
   }
 
   function taskMarkup(task) {
-      const names = { extract: "解压", test: "完整性测试", delete: "删除", compress: "压缩" };
+      const names = { extract: "解压", test: "完整性测试", delete: "删除", compress: "压缩", update: "保存修改" };
       const labels = { running: task.phase === "committing" ? "正在提交" : `${names[task.kind]}中`, completed: "已完成", failed: "失败", cancelled: "已取消" };
       const result = task.result || {};
-      const note = task.status === "completed" ? task.kind === "extract" ? `${result.files} 个文件已解压${result.skipped ? ` · 跳过 ${result.skipped} 个` : ""}${result.renamed ? ` · 重命名 ${result.renamed} 个` : ""}` : task.kind === "compress" ? `压缩完成 · ${C.formatBytes(result.size)}` : task.kind === "test" ? "完整性检查通过" : result.backupPath ? "删除完成，原包备份已保留" : "所选文件已移至回收站" : "";
+      const note = task.status === "completed" ? task.kind === "extract" ? `${result.files} 个文件已解压${result.skipped ? ` · 跳过 ${result.skipped} 个` : ""}${result.renamed ? ` · 重命名 ${result.renamed} 个` : ""}` : task.kind === "compress" ? `压缩完成 · ${C.formatBytes(result.size)}` : task.kind === "test" ? "完整性检查通过" : task.kind === "update" ? `${result.updated} 个修改已保存，原包备份已保留` : result.backupPath ? "删除完成，原包备份已保留" : "所选文件已移至回收站" : "";
       return `<article class="task-card" data-task-id="${task.id}"><div class="task-card-top">${archiveIcon(task)}<div class="task-card-title"><h3>${e(task.name)}</h3><p>${e(task.destination)} · ${names[task.kind]}</p></div><span class="task-card-state ${task.status}">${labels[task.status]}</span></div><div class="task-progress ${task.status}${task.progress === null && task.status === "running" ? " indeterminate" : ""}"><span style="width:${task.progress || 0}%"></span></div><div class="task-card-bottom"><span>${task.progress === null ? "" : task.progress + "%"}${task.phase === "committing" ? " · 正在安全提交" : ""}</span><div class="task-card-actions">${task.status === "running" ? `<button class="icon-button" data-action="task-cancel" data-id="${task.id}" title="取消任务" aria-label="取消任务" ${task.canCancel ? "" : "disabled"}>${icon("x")}</button>` : `${task.status === "completed" ? `<button class="icon-button" data-action="task-reveal" data-id="${task.id}" title="打开所在目录" aria-label="打开所在目录">${icon("folder-open")}</button>` : ""}<button class="icon-button" data-action="task-remove" data-id="${task.id}" title="移除记录" aria-label="移除记录">${icon("trash-2")}</button>`}</div></div>${task.error ? `<p class="task-error">${e(task.error.message)}</p>` : note ? `<p class="task-completion-note">${e(note)}</p>` : ""}</article>`;
   }
 
@@ -415,8 +440,9 @@
         const continuation = state.passwordContinuation;
         input.value = ""; closeDialog(); render();
         if (continuation === "extract") showExtraction(true);
-        else if (continuation === "here") extractHere();
-        else if (continuation === "test") showTest();
+        else if (continuation === "here") await extractHere();
+        else if (continuation === "folder") await extractFolder();
+        else if (continuation === "test") await showTest();
         else toast("压缩包已解锁");
       } catch (error) { if ($("#password-error")) $("#password-error").textContent = error.message; input.value = ""; input.focus(); }
       finally { button.disabled = false; }
@@ -440,6 +466,13 @@
     if (isLocked()) { showPassword("here"); return; }
     if (!archive.native) { showExtraction(true); return; }
     const task = await callNative("extract", { archiveId: archive.id, here: true, subfolder: false, policy: "rename", selection: state.extractionSelection });
+    acceptNativeTask(task, true);
+  }
+  async function extractFolder() {
+    const archive = state.archive;
+    if (!archive || archive.folder) return;
+    if (isLocked()) { showPassword("folder"); return; }
+    const task = await callNative("extract", { archiveId: archive.id, destination: archive.defaultDestination, subfolder: true, policy: "rename", selection: [] });
     acceptNativeTask(task, true);
   }
   async function submitExtraction() {
@@ -479,15 +512,21 @@
     openDialog("about", `<div class="dialog-body"><div class="about-brand"><img class="brand-logo" src="assets/favicon.svg" alt="" /><div><h3>MiniZip</h3><p>${e(state.update.current)} · Windows x64</p></div></div><p class="about-copy">7-Zip 26.06 · LZ4 1.10.0 · zip.js</p><div class="format-chips">${["ZIP", "RAR / RAR5", "7Z", "LZ4", "TAR", "GZ", "XZ", "ZSTD"].map((format) => `<span>${format}</span>`).join("")}</div><p class="field-hint">压缩：ZIP / 7Z。删除包内文件：未加密 ZIP / 7Z / TAR。RAR 等格式只读。</p></div>`, `<button class="button secondary" data-action="default-apps">默认应用设置</button>${doneButton}`, "关于 MiniZip");
   }
 
-  async function openItem(id) {
+  async function openItem(id, previewOnly = false) {
     const item = currentItem(id);
     if (!item) return;
     if (item.kind === "folder") { changePath([...state.path, id]); return; }
     if (state.archive.native) {
       try {
+        if (!previewOnly) {
+          $("#global-status").textContent = "正在打开文件…";
+          await callNative("openEntry", state.archive.id, id);
+          updateTaskStatus();
+          return;
+        }
         const preview = await callNative("preview", state.archive.id, id);
         openDialog("preview", `<div class="dialog-body">${preview.kind === "text" ? `<pre class="preview-code">${e(preview.content)}</pre>` : `<img class="preview-image" src="${e(preview.dataUrl)}" alt="${e(item.name)}" />`}</div>`, "", item.name, true);
-      } catch (error) { toast(error.message, true); }
+      } catch (error) { updateTaskStatus(); toast(error.message, true); }
       return;
     }
     if (item.file) {
@@ -560,7 +599,7 @@
     "clear-selection": () => { state.selection.clear(); state.focusedId = null; render(); },
     "archive-info": () => { state.focusedId = null; state.details = true; document.body.classList.add("show-details"); render(); },
     "close-archive": async () => {
-      if (state.archive?.native) { const id = state.archive.id; await callNative("closeArchive", id); archives.delete(id); state.history = state.history.filter((item) => item !== id); state.favorites.delete(id); }
+      if (state.archive?.native) { const id = state.archive.id; if (!await callNative("closeArchive", id)) return; archives.delete(id); state.history = state.history.filter((item) => item !== id); state.favorites.delete(id); }
       state.archive = null; state.selection.clear(); state.focusedId = null; render();
     },
     sort: (button) => { const key = button.dataset.sort; state.sortDirection = state.sortKey === key && state.sortDirection === "asc" ? "desc" : "asc"; state.sortKey = key; renderFiles(); },
@@ -568,6 +607,11 @@
     up: () => { if (state.path.length) changePath(state.path.slice(0, -1)); },
     "clear-search": () => { state.query = ""; $("#file-search").value = ""; renderFiles(); },
     "open-item": (button) => openItem(button.dataset.id),
+    "preview-item": (button) => openItem(button.dataset.id, true),
+    "save-edits": async () => { acceptNativeTask(await callNative("saveEdits", state.archive.id)); toast("正在保存修改…"); },
+    "export-edits": async () => { if (await callNative("exportEdits", state.archive.id)) toast("修改副本已另存"); },
+    "reveal-edits": () => callNative("revealEdits", state.archive.id),
+    "work-files": () => native ? callNative("workFiles") : showEngineNotice(),
     extract: () => showExtraction(),
     "extract-here": extractHere,
     "delete-selected": deleteSelected,
@@ -621,7 +665,7 @@
   });
   document.addEventListener("dblclick", (event) => {
     const row = event.target.closest("[data-file-id]");
-    if (row && !event.target.closest("input")) openItem(row.dataset.fileId);
+    if (row && !event.target.closest("input")) openItem(row.dataset.fileId).catch((error) => toast(error.message, true));
   });
   document.addEventListener("change", (event) => {
     if (["update-auto", "update-dev"].includes(event.target.id)) {
@@ -694,6 +738,7 @@
   document.addEventListener("drop", (event) => {
     event.preventDefault(); state.dragDepth = 0; $("#drop-overlay").hidden = true;
     const files = [...event.dataTransfer.files];
+    if (native && files.length > 1) { (async () => { for (const file of files) await pickNative("openDropped", file); })().catch((error) => toast(error.message, true)); return; }
     if (files.length > 1) { toast("请一次打开一个压缩包", true); return; }
     if (files[0]) {
       if (native) pickNative("openDropped", files[0]).catch((error) => toast(error.message, true));
@@ -703,10 +748,11 @@
   window.addEventListener("beforeunload", () => { if (state.previewUrl) URL.revokeObjectURL(state.previewUrl); });
   render();
   if (native) {
-    $(".preview-tag").textContent = "Dev v1.0.0";
+    $(".preview-tag").textContent = "Dev v1.0.1";
     native.onTask((task) => acceptNativeTask(task));
     native.onArchive((archive) => acceptNativeArchive(archive, state.archive?.id !== archive.id));
     native.onUpdate((value) => { state.update = value; if (state.page === "updates") renderUpdates(); });
+    native.onEdits((value) => { if (state.archive?.id === value.archiveId) { state.edits = value; renderEditNotice(); } });
     callNative("ready").then((info) => { $("#engine-status").textContent = info.engine; $(".preview-tag").textContent = info.version; if (info.updates) state.update = info.updates; info.tasks.forEach((task) => acceptNativeTask(task)); }).catch((error) => toast(error.message, true));
   }
 })();

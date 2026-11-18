@@ -38,6 +38,9 @@
       $("#source-info").textContent = `${info.files} 个文件 · ${info.folders} 个文件夹 · ${window.MiniZipCore.formatBytes(info.size)}`;
       $("#source-paths").textContent = info.sources.join("\n");
       $("#archive-name").value = info.defaultName; $("#quick-destination").value = info.destination;
+      $("#archive-format").value = info.format || "zip"; $("#extension").textContent = "." + $("#archive-format").value;
+      $("#level").value = info.level || "normal";
+      const version = document.querySelector(".version"); if (version && info.version) version.textContent = info.version;
       $("#options").disabled = false; $("#submit").disabled = false; initialized = true; resize();
     } catch (err) { $("#source-name").textContent = "无法读取所选文件"; error(err.message); }
   }

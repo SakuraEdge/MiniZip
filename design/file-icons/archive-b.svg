@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128" fill="none">
+  <title>MiniZip archive B</title>
+  <path d="M15 38L64 13L113 38L64 64L15 38Z" fill="#F0F2F5" stroke="#5D6570" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M15 38L64 64V115L19 91C16 89 15 87 15 84V38Z" fill="#D9DEE5" stroke="#5D6570" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M113 38L64 64V115L109 91C112 89 113 87 113 84V38Z" fill="#2B2D32" stroke="#2B2D32" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M41 25L88 51V77L100 70V44L53 19L41 25Z" fill="#EB6A52"/>
+  <path d="M29 62L36 66L43 80L50 74L57 78V99L50 95V85L43 91L36 77V88L29 84V62Z" fill="#434A53"/>
+  <path d="M73 89L82 84M73 97L94 86" stroke="#ABB4C0" stroke-width="3" stroke-linecap="round"/>
+</svg>

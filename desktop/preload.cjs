@@ -4,7 +4,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 const invoke = (method, payload) => ipcRenderer.invoke("minizip:" + method, payload);
 
 contextBridge.exposeInMainWorld("miniZip", {
-  version: "Dev v1.0.0",
+  version: "Dev v1.0.1",
   openArchive: () => invoke("openArchive"),
   openFolder: () => invoke("openFolder"),
   openDropped: (file) => invoke("openDropped", { path: webUtils.getPathForFile(file) }),
@@ -14,6 +14,12 @@ contextBridge.exposeInMainWorld("miniZip", {
   remove: (payload) => invoke("remove", payload),
   test: (archiveId) => invoke("test", { archiveId }),
   preview: (archiveId, entryId) => invoke("preview", { archiveId, entryId }),
+  openEntry: (archiveId, entryId) => invoke("openEntry", { archiveId, entryId }),
+  editState: (archiveId) => invoke("editState", { archiveId }),
+  saveEdits: (archiveId) => invoke("saveEdits", { archiveId }),
+  exportEdits: (archiveId) => invoke("exportEdits", { archiveId }),
+  revealEdits: (archiveId) => invoke("revealEdits", { archiveId }),
+  workFiles: () => invoke("workFiles"),
   cancelTask: (taskId) => invoke("cancelTask", { taskId }),
   revealTask: (taskId) => invoke("revealTask", { taskId }),
   closeArchive: (archiveId) => invoke("closeArchive", { archiveId }),
@@ -48,5 +54,10 @@ contextBridge.exposeInMainWorld("miniZip", {
     const listener = (_event, archive) => callback(archive);
     ipcRenderer.on("minizip:archive", listener);
     return () => ipcRenderer.removeListener("minizip:archive", listener);
+  },
+  onEdits: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("minizip:edits", listener);
+    return () => ipcRenderer.removeListener("minizip:edits", listener);
   }
 });

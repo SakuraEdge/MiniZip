@@ -40,6 +40,18 @@ jobs:
           $config = Get-Content release-config.json -Raw | ConvertFrom-Json
           $installer = "release/MiniZip-$($config.channel)-$($config.version)/$($config.installerName)"
           ./scripts/test-installer.ps1 -Installer $installer
+      - name: Test upgrade from Dev v1.0.0
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download dev-v1.0.0 --repo $env:GITHUB_REPOSITORY --pattern 'MiniZip-Dev-1.0.0-Setup-x64.exe*' --dir .cache/previous-release
+          $previous = '.cache/previous-release/MiniZip-Dev-1.0.0-Setup-x64.exe'
+          $expected = ((Get-Content -LiteralPath "$previous.sha256" -Raw) -split '\s+')[0]
+          if ((Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash -ne $expected) { throw 'Previous installer hash mismatch.' }
+          $config = Get-Content release-config.json -Raw | ConvertFrom-Json
+          $installer = "release/MiniZip-$($config.channel)-$($config.version)/$($config.installerName)"
+          ./scripts/test-installer.ps1 -Installer $installer -PreviousInstaller $previous
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:

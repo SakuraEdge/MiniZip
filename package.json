@@ -1,7 +1,7 @@
 {
   "name": "minizip",
   "productName": "MiniZip",
-  "version": "1.0.0-dev.1",
+  "version": "1.0.1-dev.1",
   "private": true,
   "description": "MiniZip local archive and file manager",
   "author": "MiniZip contributors",
@@ -12,10 +12,10 @@
     "icons": "node scripts/build-icons.cjs",
     "build": "node scripts/package.cjs",
     "installer": "node scripts/build-installer.cjs",
-    "test": "node --test tests/core.test.cjs tests/engine.test.cjs tests/compress.test.cjs tests/releases.test.cjs",
+    "test": "node --test tests/core.test.cjs tests/engine.test.cjs tests/compress.test.cjs tests/releases.test.cjs tests/writeback.test.cjs tests/edits.test.cjs",
     "test:ui": "playwright test",
-    "test:desktop": "node --test tests/desktop.test.cjs",
-    "check": "node --check app.js && node --check quick.js && node --check desktop/main.cjs && node --check desktop/archive-engine.cjs && node --check desktop/compress-engine.cjs && node --check desktop/updates.cjs"
+    "test:desktop": "node --test --test-concurrency=1 tests/desktop.test.cjs tests/workbench.test.cjs",
+    "check": "node --check app.js && node --check quick.js && node --check desktop/main.cjs && node --check desktop/preload.cjs && node --check desktop/archive-engine.cjs && node --check desktop/edit-sessions.cjs && node --check desktop/zip-compat.cjs && node --check desktop/compress-engine.cjs && node --check desktop/updates.cjs"
   },
   "dependencies": {
     "@zip.js/zip.js": "2.25.0"

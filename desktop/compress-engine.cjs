@@ -41,7 +41,7 @@ async function scanInputs(inputPaths, options = {}) {
     if (size > 128 * 1024 ** 3) fail("LIMIT", "输入大小超过当前的 128 GiB 安全上限。");
   };
   for (const source of sources) await visit(source, path.basename(source), 0);
-  const singleName = sources.length === 1 ? (entries[0].folder ? path.basename(sources[0]) : path.basename(sources[0], path.extname(sources[0]))) : "压缩文件";
+  const singleName = sources.length === 1 ? (entries[0].folder || require("../core.js").isArchive(sources[0]) ? path.basename(sources[0]) : path.basename(sources[0], path.extname(sources[0]))) : "压缩文件";
   return { sources, entries, files, folders, size, name: sources.length === 1 ? path.basename(sources[0]) : `${sources.length} 个项目`, defaultName: singleName || "压缩文件", destination: path.dirname(sources[0]) };
 }
 async function verifyInputs(manifest) {

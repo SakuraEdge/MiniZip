@@ -6,7 +6,7 @@ zip.configure({ useWebWorkers: false });
 
 class FileReader extends zip.Reader {
   constructor(filePath) { super(filePath); this.filePath = filePath; }
-  async init() { this.handle = await fs.open(this.filePath, "r"); this.size = (await this.handle.stat()).size; }
+  async init() { if (!this.handle) this.handle = await fs.open(this.filePath, "r"); this.size = (await this.handle.stat()).size; }
   async readUint8Array(index, length) {
     const buffer = Buffer.alloc(Math.min(length, this.size - index));
     let offset = 0;
@@ -22,7 +22,7 @@ class FileReader extends zip.Reader {
 async function readEntries(filePath, callback) {
   const source = new FileReader(filePath);
   const reader = new zip.ZipReader(source);
-  try { return await callback(await reader.getEntries()); }
+  try { return await callback(await reader.getEntries(), reader); }
   finally { await reader.close(); await source.handle?.close(); }
 }
 
@@ -49,10 +49,38 @@ async function streamEntry(entry, password, destination, options = {}) {
   } finally { await handle?.close(); }
 }
 
+async function replaceEntries(filePath, destination, replacements, password, options = {}) {
+  const handle = await fs.open(destination, "wx");
+  const source = new FileReader(filePath);
+  const writable = new WritableStream({ async write(chunk) {
+    let offset = 0;
+    while (offset < chunk.length) { const result = await handle.write(chunk, offset, chunk.length - offset); offset += result.bytesWritten; }
+  } });
+  const writer = new zip.ZipWriter(writable, { useWebWorkers: false });
+  try {
+    const names = new Set(replacements.map((item) => item.entryId));
+    await writer.appendZip(source, { filter: (entry) => !names.has(entry.filename.replace(/\\/g, "/")) });
+    let archiveComment;
+    await readEntries(filePath, async (entries, reader) => {
+      archiveComment = reader.comment;
+      for (const replacement of replacements) {
+        if (options.signal?.aborted) throw Object.assign(new Error("保存已取消。"), { code: "CANCELLED" });
+        const entry = entries.find((item) => item.filename.replace(/\\/g, "/") === replacement.entryId);
+        if (!entry || entry.directory) throw new Error("Replacement entry is missing");
+        const input = new FileReader(replacement.stagedPath);
+        try {
+          await writer.add(entry.filename, input, { entry, lastModDate: new Date(), level: 5, signal: options.signal, ...(entry.encrypted ? { password, zipCrypto: entry.zipCrypto, encryptionStrength: entry.extraFieldAES?.strength || 3 } : {}) });
+        } finally { await input.handle?.close(); }
+      }
+    });
+    await writer.close(archiveComment);
+  } finally { await source.handle?.close(); await handle.close(); }
+}
+
 function normalizeZipError(error, aborted) {
   if (aborted || error.name === "AbortError") return Object.assign(new Error("操作已取消。"), { code: "CANCELLED" });
   if (/password/i.test(error.message)) return Object.assign(new Error("密码不正确，或加密数据已损坏。"), { code: "WRONG_PASSWORD" });
   return error;
 }
 
-module.exports = { readEntries, streamEntry, normalizeZipError };
+module.exports = { readEntries, streamEntry, replaceEntries, normalizeZipError };

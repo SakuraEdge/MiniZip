@@ -43,7 +43,7 @@ test("desktop bridge: genuine open, extract-here, extract-to, delete backup, Chi
   try {
     const executablePath = process.env.MINIZIP_PACKAGED_EXE;
     application = await electron.launch({ ...(executablePath ? { executablePath } : {}), args: executablePath ? [archive] : [workspace, archive], env: { ...process.env, MINIZIP_TEST_MODE: "1", MINIZIP_TEST_PROFILE: profile }, timeout: 45000 });
-    const page = await application.firstWindow();
+    let page = await application.firstWindow();
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await expect(page.locator("#archive-summary h2")).toHaveText("桌面测试.zip", { timeout: 15000 });
@@ -60,7 +60,8 @@ test("desktop bridge: genuine open, extract-here, extract-to, delete backup, Chi
     await expect(page.locator(".task-card-state").first()).toHaveText("已完成", { timeout: 15000 });
     assert.equal(await fs.readFile(path.join(root, "说明.txt"), "utf8"), "MiniZip 真实桌面测试");
     await page.locator('.nav-item[data-page="browser"]').click();
-    await page.locator('[data-file-id="说明.txt"]').dblclick();
+    await page.locator('[data-file-id="说明.txt"]').click();
+    await page.getByRole("button", { name: "预览文件", exact: true }).click();
     await expect(page.locator(".preview-code")).toHaveText("MiniZip 真实桌面测试");
     await page.getByRole("button", { name: "关闭对话框" }).click();
     await page.getByRole("button", { name: "取消选择", exact: true }).click();
@@ -94,7 +95,12 @@ test("desktop bridge: genuine open, extract-here, extract-to, delete backup, Chi
     await writer.add("中文文档.txt", new zip.TextReader("密码解密验证内容"));
     await fs.writeFile(protectedPath, await writer.close());
     await application.evaluate(({ dialog }, target) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] }); }, protectedPath);
+    const originalPage = page;
+    const nextWindow = application.waitForEvent("window");
     await page.locator(".sidebar .open-button").click();
+    page = await nextWindow;
+    await expect(originalPage.locator("#archive-summary h2")).toHaveText("桌面测试.zip");
+    assert.equal(application.windows().length, 2);
     await expect(page.getByText("这是一个加密压缩包")).toBeVisible();
     await page.getByRole("button", { name: "输入密码", exact: true }).click();
     await page.locator("#archive-password").fill("错误密码");
@@ -105,7 +111,7 @@ test("desktop bridge: genuine open, extract-here, extract-to, delete backup, Chi
     await expect(page.locator("dialog")).not.toBeVisible({ timeout: 15000 });
     await expect(page.locator(".file-table tbody tr")).toHaveCount(1);
     await page.getByRole("button", { name: "解压到当前目录", exact: true }).click();
-    await expect(page.locator(".task-card")).toHaveCount(4);
+    await expect(page.locator(".task-card")).toHaveCount(1);
     await expect(page.locator(".task-card-state").first()).toHaveText("已完成", { timeout: 15000 });
     assert.equal(await fs.readFile(path.join(root, "中文文档.txt"), "utf8"), "密码解密验证内容");
     await captureWindow(application, "native-tasks.png");

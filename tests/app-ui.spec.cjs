@@ -13,7 +13,7 @@ test("fresh app has approved icon, collapsed sidebar and no sample content", asy
   await expect(page.locator("body")).not.toContainText("项目归档");
   await expect(page.locator("body")).not.toContainText("示例");
   await expect(page.locator(".brand-logo")).toHaveAttribute("src", "assets/favicon.svg");
-  await expect(page.locator(".preview-tag")).toHaveText("Dev v1.0.0");
+  await expect(page.locator(".preview-tag")).toHaveText("Dev v1.0.1");
   await page.getByRole("button", { name: "展开侧栏", exact: true }).click();
   await expect(page.locator("body")).toHaveClass(/sidebar-expanded/);
   await page.reload(); await expect(page.locator("body")).toHaveClass(/sidebar-expanded/);
@@ -56,7 +56,7 @@ test("recent and favorites contain only actually opened files", async ({ page })
 });
 test("update view has channels, preferences and honest browser error", async ({ page }) => {
   await page.getByRole("button", { name: "软件更新", exact: true }).click();
-  await expect(page.locator(".update-current")).toContainText("Dev v1.0.0");
+  await expect(page.locator(".update-current")).toContainText("Dev v1.0.1");
   await expect(page.getByRole("checkbox", { name: "接收 Dev 开发版本" })).toBeChecked();
   await page.getByRole("checkbox", { name: "接收 Dev 开发版本" }).uncheck();
   await page.getByRole("button", { name: "检查更新", exact: true }).click();

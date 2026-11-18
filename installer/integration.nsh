@@ -1,6 +1,7 @@
 !include "nsDialogs.nsh"
 !include "LogicLib.nsh"
 !include "MUI2.nsh"
+!include "${BUILD_RESOURCES_DIR}\..\installer\context-menu.nsh"
 
 !ifndef BUILD_UNINSTALLER
 Var MZAssociations
@@ -98,6 +99,8 @@ FunctionEnd
   DeleteRegKey HKCU "Software\Classes\*\shell\MiniZip.Open"
   DeleteRegKey HKCU "Software\Classes\*\shell\MiniZip.Compress"
   DeleteRegKey HKCU "Software\Classes\Directory\shell\MiniZip.Compress"
+  DeleteRegKey HKCU "Software\Classes\*\shell\MiniZip"
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\MiniZip"
 !macroend
 
 !macro customInstall
@@ -115,23 +118,7 @@ FunctionEnd
   ${Else}
     !insertmacro MZRemoveAssociations
   ${EndIf}
-  ${If} $MZContext == ${BST_CHECKED}
-    WriteRegStr HKCU "Software\Classes\*\shell\MiniZip.Open" "" "用 MiniZip 打开"
-    WriteRegStr HKCU "Software\Classes\*\shell\MiniZip.Open" "Icon" '$\"$INSTDIR\MiniZip.exe$\",0'
-    WriteRegStr HKCU "Software\Classes\*\shell\MiniZip.Open" "MultiSelectModel" "Single"
-    WriteRegStr HKCU "Software\Classes\*\shell\MiniZip.Open" "AppliesTo" 'System.FileExtension:=".zip" OR System.FileExtension:=".rar" OR System.FileExtension:=".7z" OR System.FileExtension:=".lz4" OR System.FileExtension:=".tar" OR System.FileExtension:=".gz" OR System.FileExtension:=".bz2" OR System.FileExtension:=".xz" OR System.FileExtension:=".zst" OR System.FileExtension:=".iso" OR System.FileExtension:=".cab"'
-    WriteRegStr HKCU "Software\Classes\*\shell\MiniZip.Open\command" "" '$\"$INSTDIR\MiniZip.exe$\" --open -- $\"%1$\"'
-    WriteRegStr HKCU "Software\Classes\*\shell\MiniZip.Compress" "" "MiniZip：添加到压缩文件…"
-    WriteRegStr HKCU "Software\Classes\*\shell\MiniZip.Compress" "Icon" '$\"$INSTDIR\MiniZip.exe$\",0'
-    WriteRegStr HKCU "Software\Classes\*\shell\MiniZip.Compress" "MultiSelectModel" "Document"
-    WriteRegStr HKCU "Software\Classes\*\shell\MiniZip.Compress\command" "" '$\"$INSTDIR\MiniZip.exe$\" --compress -- $\"%1$\"'
-    WriteRegStr HKCU "Software\Classes\Directory\shell\MiniZip.Compress" "" "MiniZip：添加到压缩文件…"
-    WriteRegStr HKCU "Software\Classes\Directory\shell\MiniZip.Compress" "Icon" '$\"$INSTDIR\MiniZip.exe$\",0'
-    WriteRegStr HKCU "Software\Classes\Directory\shell\MiniZip.Compress" "MultiSelectModel" "Document"
-    WriteRegStr HKCU "Software\Classes\Directory\shell\MiniZip.Compress\command" "" '$\"$INSTDIR\MiniZip.exe$\" --compress -- $\"%1$\"'
-  ${Else}
-    !insertmacro MZRemoveContext
-  ${EndIf}
+  !insertmacro MZInstallSubmenus
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
   ${If} $MZDefaults == ${BST_CHECKED}
     ExecShell "open" "ms-settings:defaultapps"

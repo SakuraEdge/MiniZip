@@ -6,7 +6,7 @@ function parseLaunch(argv) {
   const paths = [];
   for (const value of argv) {
     if (value === "--") { positional = true; continue; }
-    if (!positional && value === "--compress") { mode = "compress"; continue; }
+    if (!positional && ["--compress", "--compress-zip", "--compress-7z", "--extract-here", "--extract-to", "--extract-folder"].includes(value)) { mode = value.slice(2); continue; }
     if (!positional && value === "--open") { mode = "open"; continue; }
     if (!positional && value === "--default-apps") { mode = "defaults"; continue; }
     if (!positional && value.startsWith("-")) continue;

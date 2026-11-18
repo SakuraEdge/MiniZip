@@ -21,7 +21,7 @@
           <a class="brand" href="#" data-action="home" aria-label="MiniZip 工作台"><img class="brand-logo" src="assets/favicon.svg" alt="" /><span>Mini<span class="brand-light">Zip</span></span></a>
         </div>
         <div class="workspace-title"><span class="workspace-dot"></span><span>本地工作空间</span><i data-lucide="chevron-right"></i><span class="workspace-name">文件浏览</span></div>
-        <div class="header-actions"><span class="preview-tag">Dev v1.0.0</span><span class="header-divider"></span><button class="icon-button" data-action="about" title="关于 MiniZip" aria-label="关于 MiniZip"><i data-lucide="circle-help"></i></button><button class="icon-button" data-action="settings" title="偏好设置" aria-label="偏好设置"><i data-lucide="settings-2"></i></button></div>
+        <div class="header-actions"><span class="preview-tag">Dev v1.0.1</span><span class="header-divider"></span><button class="icon-button" data-action="about" title="关于 MiniZip" aria-label="关于 MiniZip"><i data-lucide="circle-help"></i></button><button class="icon-button" data-action="settings" title="偏好设置" aria-label="偏好设置"><i data-lucide="settings-2"></i></button></div>
       </header>
 
       <aside class="sidebar" aria-label="主导航">
@@ -40,6 +40,7 @@
           <div class="section-caption"><span>快速访问</span><button class="small-icon-button" data-action="open-folder" title="添加本地文件夹" aria-label="添加本地文件夹"><i data-lucide="plus"></i></button></div>
           <button class="nav-item" data-action="open-folder" title="本地文件夹" aria-label="本地文件夹"><i data-lucide="folder"></i><span>本地文件夹</span><i class="nav-trailing" data-lucide="arrow-up-right"></i></button>
           <button class="nav-item" data-action="create-archive" title="创建压缩包" aria-label="创建压缩包"><i data-lucide="folder-plus"></i><span>创建压缩包</span></button>
+          <button class="nav-item" data-action="work-files" title="外部工作副本" aria-label="外部工作副本"><i data-lucide="files"></i><span>外部工作副本</span></button>
         </div>
         <div class="sidebar-bottom">
           <button class="nav-item" data-action="navigate" data-page="updates" title="软件更新" aria-label="软件更新"><i data-lucide="download"></i><span>软件更新</span></button>
@@ -50,6 +51,7 @@
 
       <main class="workspace">
         <div class="page-heading"><div><h1 id="page-title">文件浏览</h1></div><div class="page-heading-right"><button class="button secondary compact" data-action="open-folder"><i data-lucide="folder-plus"></i><span>打开文件夹</span></button></div></div>
+        <section id="edit-notice" class="edit-notice" aria-label="外部文件修改" aria-live="polite" hidden></section>
         <section id="browser-view" class="browser-view" aria-label="文件浏览器">
           <div class="archive-summary" id="archive-summary"></div>
           <div class="file-toolbar" id="file-toolbar">

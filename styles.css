@@ -621,3 +621,12 @@ body.no-details .details-panel { display: none; }
   .update-setting small { max-width: 250px; }
   .release-heading { flex-wrap: wrap; }
 }
+/* Keep external-edit actions visible in every workbench view. */
+.edit-notice { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; margin-bottom: 16px; border-bottom: 1px solid #e2b6a9; color: #40464f; }
+.edit-notice[hidden] { display: none; }
+.edit-message { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.edit-message > svg { flex: 0 0 20px; color: #bd4a32; }
+.edit-message strong { display: block; font-size: 14px; }
+.edit-message span { display: block; margin-top: 4px; font-size: 12px; overflow-wrap: anywhere; max-height: 52px; overflow: auto; }
+.edit-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+@media (max-width: 1050px) { .edit-notice { flex-wrap: wrap; } .edit-actions { flex-wrap: wrap; } }

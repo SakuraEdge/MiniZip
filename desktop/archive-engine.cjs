@@ -5,7 +5,7 @@ const { constants, createWriteStream, createReadStream } = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
-const { randomUUID } = require("node:crypto");
+const { randomUUID, createHash } = require("node:crypto");
 const { Transform } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 const Core = require("../core.js");
@@ -129,6 +129,11 @@ async function fingerprint(filePath) {
   return { size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs, ino: stat.ino };
 }
 function sameFingerprint(a, b) { return a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs && a.ino === b.ino; }
+async function hashFile(filePath) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  return hash.digest("hex");
+}
 
 class ArchiveEngine {
   constructor(options = {}) {
@@ -220,7 +225,8 @@ class ArchiveEngine {
         archive.encrypted = session.flat.some((entry) => entry.encrypted) || /AES/i.test(archive.method);
         archive.originalSize = listing.entries.some((item) => item.size === null) ? null : listing.total;
         if (listing.entries.length === 1 && listing.entries[0].unnamed) session.type = "stream";
-        archive.canDelete = MUTABLE_TYPES.has(listing.metadata.Type) && !archive.encrypted && !listing.metadata.Volumes && listing.metadata["Multivolume"] !== "+";
+        session.mutable = MUTABLE_TYPES.has(listing.metadata.Type) && !listing.metadata.Volumes && listing.metadata["Multivolume"] !== "+";
+        archive.canDelete = session.mutable && !archive.encrypted;
         if (archive.encrypted && !password) { archive.locked = true; session.flat = []; }
         else if (archive.encrypted && password) {
           const smallest = listing.entries.filter((entry) => !entry.folder && entry.encrypted).sort((a, b) => a.size - b.size)[0];
@@ -252,9 +258,10 @@ class ArchiveEngine {
         const inner = await this.list(innerPath, "", options);
         if (inner.metadata.Type !== "tar") fail("INVALID_ARCHIVE", "容器内部不是有效的 TAR 归档。");
         session.flat = inner.entries; session.actualPath = innerPath; session.type = "7zip";
-        archive.format = "TAR." + archive.format; archive.originalSize = inner.total; archive.canDelete = false;
+        archive.format = "TAR." + archive.format; archive.originalSize = inner.total; archive.canDelete = false; session.mutable = false;
       }
       archive.entries = makeTree(session.flat);
+      archive.canUpdate = Boolean(!archive.locked && session.mutable && (!archive.encrypted || password));
       return session;
     } catch (error) {
       if (session.cache) await safeRemoveOwned(this.cacheRoot, session.cache);
@@ -486,7 +493,85 @@ class ArchiveEngine {
       return kind === "text" ? { kind, content: buffer.toString("utf8") } : { kind, dataUrl: `data:${imageTypes[ext]};base64,${buffer.toString("base64")}` };
     } finally { await safeRemoveOwned(this.cacheRoot, work); }
   }
+  async updateEntries(session, replacements, options = {}) {
+    await this.assertUnchanged(session);
+    if (!session.archive.canUpdate) fail("READ_ONLY", "此格式或加密方式不支持写回，请另存修改后的文件。");
+    if (!Array.isArray(replacements) || !replacements.length || replacements.length > MAX_ENTRIES) fail("INVALID_SELECTION", "没有可保存的修改。");
+    const selected = new Map();
+    let total = 0;
+    for (const value of replacements) {
+      const entryId = normalizeEntryPath(value.entryId);
+      const original = session.flat.find((item) => item.path === entryId && !item.folder);
+      if (!original || selected.has(entryId.toLowerCase()) || typeof value.sourcePath !== "string" || !path.isAbsolute(value.sourcePath)) fail("INVALID_SELECTION", "修改的文件不属于当前压缩包。");
+      await rejectLinks(value.sourcePath);
+      const stat = await fs.lstat(value.sourcePath);
+      if (!stat.isFile() || stat.nlink > 1) fail("UNSAFE_LINK", "不能将链接或特殊文件写回压缩包。");
+      if (value.expectedHash && !/^[a-f0-9]{64}$/i.test(value.expectedHash)) fail("INVALID_SELECTION", "修改文件的校验信息无效。");
+      total += stat.size;
+      selected.set(entryId.toLowerCase(), { ...value, entryId, identity: await fingerprint(value.sourcePath), size: stat.size });
+    }
+    if (session.flat.reduce((sum, entry) => sum + (selected.get(entry.path.toLowerCase())?.size ?? entry.size ?? 0), 0) > MAX_BYTES) fail("LIMIT", "修改后的压缩包超过安全大小上限。");
+    const parent = path.dirname(session.archive.path);
+    await rejectLinks(session.archive.path);
+    const disk = await fs.statfs(parent);
+    if (Number(disk.bavail) * Number(disk.bsize) < session.identity.size * 2 + total * 2 + 64 * 1024 ** 2) fail("DISK_SPACE", "磁盘空间不足，无法安全保存修改。");
+    const work = await fs.mkdtemp(path.join(parent, ".minizip-edit-"));
+    const stage = path.join(work, "files");
+    const temporary = path.join(work, "archive" + path.extname(session.archive.path));
+    try {
+      options.onPhase?.("preparing");
+      for (const item of selected.values()) {
+        if (options.signal?.aborted) fail("CANCELLED", "保存已取消，原压缩包未更改。");
+        const target = path.join(stage, ...item.entryId.split("/"));
+        item.stagedPath = target;
+        assertInside(stage, target);
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.copyFile(item.sourcePath, target, constants.COPYFILE_EXCL);
+        item.hash = await hashFile(target);
+        if ((item.expectedHash && item.hash !== item.expectedHash) || !sameFingerprint(item.identity, await fingerprint(item.sourcePath)) || item.hash !== await hashFile(item.sourcePath)) fail("SOURCE_CHANGED", "外部文件仍在保存中，请稍后再试。");
+      }
+      const listFile = await this.selectionFile([...selected.values()].map((entry) => ({ path: entry.entryId })), work);
+      options.onPhase?.("updating");
+      if (session.archive.format === "ZIP" && session.archive.encrypted) await ZipCompat.replaceEntries(session.archive.path, temporary, [...selected.values()], session.password, options);
+      else {
+        await fs.copyFile(session.archive.path, temporary, constants.COPYFILE_EXCL);
+        await this.run(this.sevenZip, ["a", "-y", "-sccUTF-8", "-scsUTF-8", "-spd", "-bsp1", ...(session.archive.encrypted ? ["-p", "-mhe=on"] : []), temporary, "@" + listFile], { ...options, cwd: stage, password: session.password, ...(session.archive.encrypted ? { input: session.password + "\n" + session.password + "\n" + session.password + "\n" } : {}) });
+      }
+      const listing = await this.list(temporary, session.password, options);
+      const actual = new Map(listing.entries.map((entry) => [entry.path, entry]));
+      if (actual.size !== session.flat.length || session.flat.some((entry) => {
+        const updated = actual.get(entry.path), replacement = selected.get(entry.path.toLowerCase());
+        return !updated || updated.folder !== entry.folder || updated.encrypted !== entry.encrypted || (replacement ? updated.size !== replacement.size : updated.size !== entry.size || updated.crc !== entry.crc);
+      })) fail("UPDATE_FAILED", "修改后的文件清单或未修改文件校验不一致，原包未更改。");
+      options.onPhase?.("verifying");
+      const verificationSession = await this.open(temporary, session.password, options);
+      try { await this.test(verificationSession, options); } finally { await this.close(verificationSession); }
+      for (const item of selected.values()) {
+        const verification = path.join(work, "verify-" + randomUUID());
+        if (session.archive.format === "ZIP" && session.archive.encrypted) await ZipCompat.readEntries(temporary, async (entries) => {
+          const entry = entries.find((value) => value.filename.replace(/\\/g, "/") === item.entryId);
+          if (!entry) fail("UPDATE_FAILED", "写回内容不存在。");
+          await ZipCompat.streamEntry(entry, session.password, verification, { ...options, maxBytes: item.size || 1 });
+        });
+        else await this.run(this.sevenZip, ["x", "-so", "-sccUTF-8", "-bsp0", "-spd", "--", temporary, item.entryId], { ...options, password: session.password, outputFile: verification, maxBytes: item.size || 1 });
+        if (await hashFile(verification) !== item.hash) fail("UPDATE_FAILED", "写回内容校验失败，原压缩包未更改。");
+        await fs.unlink(verification);
+        await rejectLinks(item.sourcePath);
+        if (!sameFingerprint(item.identity, await fingerprint(item.sourcePath)) || await hashFile(item.sourcePath) !== item.hash) fail("SOURCE_CHANGED", "文件在写回期间再次变化，原压缩包未更改，请重新保存。");
+      }
+      if (options.signal?.aborted) fail("CANCELLED", "保存已取消，原压缩包未更改。");
+      await this.assertUnchanged(session);
+      options.onPhase?.("committing");
+      const backupPath = session.archive.path + ".minizip-backup-" + new Date().toISOString().replace(/[:.]/g, "-") + "-" + randomUUID().slice(0, 6);
+      await fs.rename(session.archive.path, backupPath);
+      try { await fs.rename(temporary, session.archive.path); }
+      catch (error) { await fs.rename(backupPath, session.archive.path); throw error; }
+      const updated = await this.open(session.archive.path, session.password);
+      updated.archive.id = session.archive.id;
+      return { session: updated, backupPath, updated: selected.size };
+    } finally { await safeRemoveOwned(parent, work); }
+  }
   async close(session) { session.password = ""; if (session.cache) { await safeRemoveOwned(this.cacheRoot, session.cache); session.cache = null; } }
 }
 
-module.exports = { ArchiveEngine, ArchiveError, parseListing, makeTree, normalizeEntryPath, assertInside, rejectLinks, safeRemoveOwned, fingerprint, sameFingerprint };
+module.exports = { ArchiveEngine, ArchiveError, parseListing, makeTree, normalizeEntryPath, assertInside, rejectLinks, safeRemoveOwned, fingerprint, sameFingerprint, hashFile };
