@@ -89,6 +89,24 @@ for (const view of ["list", "grid"]) test(`${view}: marquee selects intersecting
   await page.keyboard.press('Escape');
   await files.nth(4).locator('input').check(); await expect(page.locator('[data-file-id].selected')).toHaveCount(2);
 });
+test('opening a context menu after a scroll keeps it open until the list moves again', async ({ page }) => {
+  await filesForGestures(page, 70);
+  const menu = page.getByRole('menu');
+  const visibleAfterScrollEvent = await page.locator('#file-content').evaluate(async content => {
+    const row = content.querySelectorAll('[data-file-id]')[30];
+    // Moving the row into view queues a scroll event; the menu opens at the new position.
+    const scrolled = new Promise(resolve => content.addEventListener('scroll', resolve, { once: true }));
+    row.scrollIntoView({ block: 'center', behavior: 'instant' });
+    const rect = row.getBoundingClientRect();
+    row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: rect.left + 48, clientY: rect.top + 12 }));
+    await scrolled;
+    return !document.getElementById('file-menu').hidden;
+  });
+  expect(visibleAfterScrollEvent).toBe(true);
+  await expect(menu).toBeVisible();
+  await page.locator('#file-content').evaluate(el => { el.scrollTop += 40; });
+  await expect(menu).toBeHidden();
+});
 test('drag near lower edge autoscrolls and Escape restores the selection', async ({ page }) => {
   await filesForGestures(page, 70);
   const first = page.locator('[data-file-id]').first(); await first.click();

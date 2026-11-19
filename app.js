@@ -43,7 +43,7 @@
   };
   const dialog = $("#app-dialog");
   const fileMenu = $("#file-menu");
-  let rowIndex = new Map(), menuAnchor, previewRequest = 0;
+  let rowIndex = new Map(), menuAnchor, menuScrollTop = 0, menuScrollLeft = 0, previewRequest = 0;
   let toastTimeout;
 
   async function callNative(method, ...args) {
@@ -630,6 +630,8 @@
     const item = currentItem(row.dataset.fileId), a = state.archive, one = state.selection.size === 1;
     if (!item) return;
     menuAnchor = row;
+    const content = $("#file-content");
+    menuScrollTop = content.scrollTop; menuScrollLeft = content.scrollLeft;
     const command = (action, glyph, text, allowed, reason = "", danger = false) => `<button role="menuitem" data-action="${action}" data-id="${e(item.id)}" ${allowed ? "" : `disabled title="${e(reason)}"`} ${danger ? 'class="menu-danger"' : ""}>${icon(glyph)}${text}</button>`;
     fileMenu.innerHTML = command("open-item", "folder-open", item.kind === "archive" ? "在新工作台打开" : "打开", one) + (a.native && !a.folder && !["folder", "archive"].includes(item.kind) ? command("external-item", "external-link", "用外部应用打开", one) : "") + (!a.folder ? command("extract-selected", "folder-down", "解压所选到…", a.native) : "") + "<hr>" + command("rename-item", "pencil", "重命名", one && a.canRename, one ? "此位置不支持重命名" : "请选择一个项目") + command("delete-selected", "trash-2", a.folder ? "移到回收站" : "删除", a.native && a.canDelete, "此位置只读", true);
     paintIcons(fileMenu); fileMenu.hidden = false;
@@ -755,7 +757,10 @@
   } });
   document.addEventListener("pointerdown", event => { if (!fileMenu.hidden && !fileMenu.contains(event.target)) hideFileMenu(); });
   window.addEventListener("blur", () => hideFileMenu()); window.addEventListener("resize", () => hideFileMenu());
-  $("#file-content").addEventListener("scroll", () => hideFileMenu(), { passive: true });
+  $("#file-content").addEventListener("scroll", ({ currentTarget }) => {
+    // Chromium can deliver the scroll that revealed the row after contextmenu.
+    if (!fileMenu.hidden && (currentTarget.scrollTop !== menuScrollTop || currentTarget.scrollLeft !== menuScrollLeft)) hideFileMenu();
+  }, { passive: true });
   fileMenu.addEventListener("keydown", event => {
     const buttons = $$("button:not(:disabled)", fileMenu), i = buttons.indexOf(document.activeElement);
     if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && buttons.length) {
