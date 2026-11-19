@@ -15,7 +15,7 @@ test("filenames are escaped before being placed in HTML", () => {
 });
 
 test("archive extension recognition is case insensitive", () => {
-  for (const name of ["中文.ZIP", "归档.rar", "a.7z", "backup.tar.gz", "log.LZ4", "multi.001", "data.zst"]) assert.equal(core.isArchive(name), true);
+  for (const name of ["中文.ZIP", "a.ZIPX", "归档.rar", "a.7z", "backup.tar.gz", "log.LZ4", "multi.001", "data.zst"]) assert.equal(core.isArchive(name), true);
   assert.equal(core.isArchive("file.zip.exe"), false);
   assert.equal(core.kindFor("图片.JPEG"), "image");
 });

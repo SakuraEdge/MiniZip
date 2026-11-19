@@ -108,7 +108,7 @@ FunctionEnd
   WriteRegDWORD HKCU "Software\MiniZip\Installer" "ContextMenu" $MZContext
   ${If} $MZAssociations == ${BST_CHECKED}
     WriteRegStr HKCU "Software\Classes\MiniZip.Archive" "" "MiniZip 压缩文件"
-    WriteRegStr HKCU "Software\Classes\MiniZip.Archive\DefaultIcon" "" '$\"$INSTDIR\MiniZip.exe$\",0'
+    WriteRegStr HKCU "Software\Classes\MiniZip.Archive\DefaultIcon" "" '$\"$INSTDIR\resources\app\assets\archive.ico$\",0'
     WriteRegStr HKCU "Software\Classes\MiniZip.Archive\shell\open\command" "" '$\"$INSTDIR\MiniZip.exe$\" --open -- $\"%1$\"'
     WriteRegStr HKCU "Software\MiniZip\Capabilities" "ApplicationName" "MiniZip"
     WriteRegStr HKCU "Software\MiniZip\Capabilities" "ApplicationDescription" "MiniZip 压缩包管理工具"

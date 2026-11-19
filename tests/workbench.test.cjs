@@ -31,6 +31,9 @@ test("independent workbenches open system documents, confirm programs and write 
     application = await electron.launch({ ...(executablePath ? { executablePath } : {}), args: [...(executablePath ? [] : [workspace]), archive], env: { ...process.env, MINIZIP_TEST_MODE: "1", MINIZIP_TEST_PROFILE: path.join(root, "profile") }, timeout: 45000 });
     const page = await application.firstWindow();
     await expect(page.locator("#archive-summary h2")).toHaveText("outer.zip");
+    await expect(page.locator('#archive-summary .archive-glyph')).toHaveAttribute('src', 'assets/archive.svg');
+    await expect(page.locator('[data-file-id="内层.zip"] .archive-glyph')).toHaveAttribute('src', 'assets/archive.svg');
+    await expect(page.locator('#details-panel .archive-glyph')).toHaveJSProperty('naturalWidth', 256);
     await application.evaluate(({ shell, dialog }) => {
       globalThis.openedFiles = []; globalThis.confirmations = []; globalThis.confirmResponse = 0;
       shell.openPath = async (filePath) => { globalThis.openedFiles.push(filePath); return ""; };
@@ -144,6 +147,8 @@ test("Explorer extraction actions and external second-instance opens use indepen
     const quick = await quickWindow;
     await expect(quick.locator("#archive-format")).toHaveValue("7z");
     await expect(quick.locator("#archive-name")).toHaveValue("menu.zip");
+    await expect(quick.locator('.source-icon img')).toHaveAttribute('src', 'assets/archive.svg');
+    await expect(quick.locator('.quick-titlebar img')).toHaveAttribute('src', 'assets/favicon.svg');
     await quick.getByRole("button", { name: "压缩", exact: true }).click();
     await expect(quick.locator("#phase")).toHaveText("压缩完成", { timeout: 20000 });
     assert.ok(await fs.stat(path.join(root, "menu.zip.7z")));

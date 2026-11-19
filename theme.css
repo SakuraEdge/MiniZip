@@ -1,0 +1,27 @@
+/* The workbench and quick-compression window use the same surface and state colors. */
+:root {
+  color-scheme: light;
+  --bg: #eef6f7;
+  --surface: #ffffff;
+  --sidebar: #f4faf9;
+  --soft: #edf5f5;
+  --text: #213e47;
+  --secondary: #425f69;
+  --muted: #536e78;
+  --border: #d4e4e6;
+  --control-border: #b7ced2;
+  --accent: #16756f;
+  --accent-hover: #105e5b;
+  --accent-soft: #dcf2eb;
+  --accent-border: #9dcec0;
+  --focus: #246d99;
+  --focus-halo: #408ca328;
+  --sky-soft: #e6f3f9;
+  --blue: #336c8b;
+  --green: #277254;
+  --danger: #a24040;
+  --danger-soft: #fcf0ee;
+  --warning: #815919;
+  --warning-soft: #fbf4e2;
+  --shadow: 0 2px 9px #24485208;
+}

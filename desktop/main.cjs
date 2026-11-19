@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, session: electronSession } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, session: electronSession } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
@@ -391,7 +391,8 @@ function registerQuickHandlers() {
     current.manifest = await current.manifestPromise;
     const { entries, ...summary } = current.manifest;
     current.allowed.add(summary.destination);
-    return { ...summary, format: current.format || "zip", level: current.format === "7z" ? "maximum" : "normal", version: releaseConfig.displayVersion };
+    const sourceKind = summary.sources.length > 1 ? "multiple" : entries[0]?.folder ? "folder" : Core.isArchive(summary.name) ? "archive" : "file";
+    return { ...summary, sourceKind, format: current.format || "zip", level: current.format === "7z" ? "maximum" : "normal", version: releaseConfig.displayVersion };
   });
   quickHandle("quickDestination", async (current) => {
     const selected = await dialog.showOpenDialog(current.window, { title: "选择保存位置", defaultPath: current.manifest?.destination, properties: ["openDirectory", "createDirectory"] });
@@ -493,7 +494,7 @@ async function releaseWorkbench(view) {
   if (!view.window.isDestroyed()) view.window.setTitle("MiniZip");
 }
 async function createWindow(initialPath = null, launchMode = "open", parentArchiveId = null) {
-  const window = new BrowserWindow({ width: 1320, height: 870, minWidth: 780, minHeight: 620, title: "MiniZip", icon: path.resolve(__dirname, "../assets/minizip.ico"), backgroundColor: "#f6f7f9", show: !testMode, autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, navigateOnDragDrop: false, backgroundThrottling: !testMode, devTools: !app.isPackaged } });
+  const window = new BrowserWindow({ width: 1320, height: 870, minWidth: 780, minHeight: 620, title: "MiniZip", icon: path.resolve(__dirname, "../assets/minizip.ico"), backgroundColor: "#eef6f7", show: !testMode, autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, navigateOnDragDrop: false, backgroundThrottling: !testMode, devTools: !app.isPackaged } });
   const view = { window, ready: false, archiveId: null, allowedDestinations: new Set(), initialPath, launchMode, parentArchiveId, closing: false, opening: false, openingEntry: false };
   const contentsId = window.webContents.id;
   workbenches.set(contentsId, view);
@@ -534,6 +535,7 @@ else {
   });
   app.whenReady().then(async () => {
     app.setAppUserModelId("MiniZip.Desktop");
+    nativeTheme.themeSource = "light";
     const cacheRoot = path.join(app.getPath("temp"), "MiniZip", randomUUID());
     engine = new ArchiveEngine({ cacheRoot });
     edits = new EditSessions(engine, path.join(app.getPath("userData"), "work-files"), (value) => send("edits", value));

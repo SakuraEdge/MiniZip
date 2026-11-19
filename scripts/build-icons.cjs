@@ -5,7 +5,14 @@ const { Resvg } = require("@resvg/resvg-js");
 
 (async () => {
   const root = path.resolve(__dirname, "..");
-  const source = await fs.readFile(path.join(root, "assets/favicon.svg"), "utf8");
+  await Promise.all([["favicon", "minizip"], ["archive", "archive"]].map(async ([input, output]) => {
+    const source = await fs.readFile(path.join(root, `assets/${input}.svg`), "utf8");
+    await buildIcon(path.join(root, `assets/${output}`), source);
+  }));
+  console.log("Built application and archive icons, each at 8 Windows sizes (16–256 px).");
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+
+async function buildIcon(output, source) {
   const sizes = [16, 20, 24, 32, 48, 64, 128, 256];
   const images = sizes.map((size) => new Resvg(source, { fitTo: { mode: "width", value: size } }).render().asPng());
   const header = Buffer.alloc(6 + images.length * 16);
@@ -18,7 +25,6 @@ const { Resvg } = require("@resvg/resvg-js");
     header.writeUInt32LE(image.length, entry + 8); header.writeUInt32LE(offset, entry + 12);
     offset += image.length;
   });
-  await fs.writeFile(path.join(root, "assets/minizip.ico"), Buffer.concat([header, ...images]));
-  await fs.writeFile(path.join(root, "assets/minizip.png"), images.at(-1));
-  console.log("Built approved icon C: 8 ICO sizes and 256px PNG.");
-})().catch((error) => { console.error(error); process.exitCode = 1; });
+  await fs.writeFile(`${output}.ico`, Buffer.concat([header, ...images]));
+  await fs.writeFile(`${output}.png`, images.at(-1));
+}

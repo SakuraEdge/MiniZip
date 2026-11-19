@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128" fill="none">
+  <title>MiniZip archive</title>
+  <g transform="translate(5 0)" stroke-linejoin="round">
+    <path d="M30 9H88L105 26V100C105 105 101 109 96 109H30C25 109 21 105 21 100V18C21 13 25 9 30 9Z" fill="#B9E8EB" stroke="#538E9D" stroke-width="3.5"/>
+    <path d="M24 19H81L98 36V109C98 114 94 118 89 118H24C19 118 15 114 15 109V28C15 23 19 19 24 19Z" fill="#F6FCFA" stroke="#497F8E" stroke-width="3.5"/>
+    <path d="M81 20V31C81 35 83 37 87 37H97" fill="#D7F2F2" stroke="#497F8E" stroke-width="3"/>
+    <path d="M15 52H98V91H15Z" fill="#388998"/>
+    <path d="M27 81V62H32L41 72L50 62H55V81H49V71L41 80L33 71V81H27Z" fill="#FFFFFF"/>
+    <path d="M70 22H81V102H70Z" fill="#68C9AB"/>
+    <path d="M70 29H76V34H70ZM76 36H81V41H76ZM70 43H76V48H70Z" fill="#F2FFF7"/>
+    <rect x="66" y="55" width="19" height="26" rx="5" fill="#AAEED0" stroke="#3D8B83" stroke-width="2"/>
+    <rect x="72" y="62" width="7" height="10" rx="2" fill="#25657C"/>
+    <path d="M28 104H51" stroke="#91B4BC" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

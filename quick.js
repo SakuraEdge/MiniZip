@@ -34,6 +34,9 @@
   async function init() {
     try {
       const info = await call("quickReady");
+      const glyphs = { folder: "folder", file: "file", multiple: "files" };
+      $(".source-icon").innerHTML = info.sourceKind === "archive" ? '<img src="assets/archive.svg" alt="" />' : `<i data-lucide="${glyphs[info.sourceKind] || "file"}"></i>`;
+      icons();
       $("#source-name").textContent = info.name; $("#source-name").title = info.name;
       $("#source-info").textContent = `${info.files} 个文件 · ${info.folders} 个文件夹 · ${window.MiniZipCore.formatBytes(info.size)}`;
       $("#source-paths").textContent = info.sources.join("\n");

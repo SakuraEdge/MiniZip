@@ -26,10 +26,10 @@ async function main() {
   const config = require("../release-config.json");
   const release = path.join(root, "release", `MiniZip-${config.channel}-${config.version}`);
   try {
-    for (const file of ["index.html", "styles.css", "app.js", "core.js", "quick.html", "quick.css", "quick.js", "release-config.json", "package.json", "README.md", "THIRD_PARTY_NOTICES.md"]) await fs.copyFile(path.join(root, file), path.join(staging, file));
+    for (const file of ["index.html", "theme.css", "styles.css", "app.js", "core.js", "quick.html", "quick.css", "quick.js", "release-config.json", "package.json", "README.md", "THIRD_PARTY_NOTICES.md"]) await fs.copyFile(path.join(root, file), path.join(staging, file));
     for (const folder of ["desktop", "vendor"]) await fs.cp(path.join(root, folder), path.join(staging, folder), { recursive: true });
     await fs.mkdir(path.join(staging, "assets"));
-    for (const asset of ["favicon.svg", "minizip.ico", "minizip.png"]) await fs.copyFile(path.join(root, "assets", asset), path.join(staging, "assets", asset));
+    for (const asset of ["favicon.svg", "minizip.ico", "minizip.png", "archive.svg", "archive.ico"]) await fs.copyFile(path.join(root, "assets", asset), path.join(staging, "assets", asset));
     await fs.mkdir(path.join(staging, "node_modules/@zip.js"), { recursive: true });
     await fs.cp(path.join(root, "node_modules/@zip.js/zip.js"), path.join(staging, "node_modules/@zip.js/zip.js"), { recursive: true });
     await fs.mkdir(path.join(staging, "engines/7zip"), { recursive: true });

@@ -102,11 +102,17 @@
     paintIcons();
     toastTimeout = setTimeout(() => { $("#toast-region").innerHTML = ""; }, 4000);
   }
+  const archiveGlyph = '<img class="archive-glyph" src="assets/archive.svg" alt="" />';
   function fileIcon(item, large = false) {
-    const names = { folder: "folder", image: "image", pdf: "file-text", design: "figma", text: "file-text", video: "film", font: "type", archive: "file-archive", file: "file" };
-    return `<span class="file-icon ${item.kind}${large ? " details-large-file" : ""}">${item.thumbnail ? `<img src="${e(item.thumbnail)}" alt="" loading="lazy" />` : icon(names[item.kind] || "file")}</span>`;
+    const names = { folder: "folder", image: "image", pdf: "file-text", design: "figma", text: "file-text", video: "film", font: "type", file: "file" };
+    const glyph = item.kind === "archive" ? archiveGlyph : item.thumbnail ? `<img src="${e(item.thumbnail)}" alt="" loading="lazy" />` : icon(names[item.kind] || "file");
+    return `<span class="file-icon ${item.kind}${large ? " details-large-file" : ""}">${glyph}</span>`;
   }
-  function archiveIcon(archive) { return `<span class="archive-icon">${icon(archive?.folder ? "folder" : archive?.encrypted ? "folder-lock" : "file-archive")}</span>`; }
+  function archiveIcon(archive, className = "archive-icon") {
+    if (archive?.folder) return `<span class="${className}">${icon("folder")}</span>`;
+    const badge = archive?.encrypted ? `<span class="archive-badge" role="img" aria-label="已加密">${icon("lock-keyhole")}</span>` : "";
+    return `<span class="${className} is-archive">${archiveGlyph}${badge}</span>`;
+  }
   function isLocked() { return Boolean(state.archive?.locked); }
   function currentEntries() { return state.archive ? C.visibleEntries(state.archive, state.path) : []; }
   function filteredEntries() { return C.filterAndSort(currentEntries(), state.query, state.sortKey, state.sortDirection); }
@@ -262,7 +268,7 @@
       return;
     }
     const counts = C.countEntries(archive.entries || []);
-    panel.innerHTML = `${heading}<div class="detail-preview"><div class="detail-archive-art">${icon(archive.folder ? "folder" : archive.encrypted ? "folder-lock" : "file-archive")}</div><strong class="detail-preview-name" title="${e(archive.name)}">${e(archive.name)}</strong><span class="detail-preview-subtitle">${archive.folder ? "本地文件夹" : `${e(archive.format)} 压缩文件`}</span></div><div class="detail-section"><div class="detail-section-title">基本信息</div><dl><div><dt>${archive.folder ? "总大小" : "压缩大小"}</dt><dd>${C.formatBytes(archive.size)}</dd></div><div><dt>原始大小</dt><dd>${C.formatBytes(archive.originalSize)}</dd></div><div><dt>包含项目</dt><dd>${archive.external ? "待解析" : `${counts.files} 文件 / ${counts.folders} 文件夹`}</dd></div><div><dt>修改时间</dt><dd>${e(archive.date.slice(0, 10))}</dd></div><div><dt>压缩方式</dt><dd>${e(archive.method || "待检测")}</dd></div><div><dt>加密状态</dt><dd><span class="safe-status">${icon(archive.encrypted ? "lock-keyhole" : "shield-check")}${archive.external ? "待检测" : archive.encrypted ? isLocked() ? "已加密" : "已解锁" : "未加密"}</span></dd></div></dl></div>${!archive.external ? renderDistribution(archive.entries) : ""}`;
+    panel.innerHTML = `${heading}<div class="detail-preview">${archiveIcon(archive, "detail-archive-art")}<strong class="detail-preview-name" title="${e(archive.name)}">${e(archive.name)}</strong><span class="detail-preview-subtitle">${archive.folder ? "本地文件夹" : `${e(archive.format)} 压缩文件`}</span></div><div class="detail-section"><div class="detail-section-title">基本信息</div><dl><div><dt>${archive.folder ? "总大小" : "压缩大小"}</dt><dd>${C.formatBytes(archive.size)}</dd></div><div><dt>原始大小</dt><dd>${C.formatBytes(archive.originalSize)}</dd></div><div><dt>包含项目</dt><dd>${archive.external ? "待解析" : `${counts.files} 文件 / ${counts.folders} 文件夹`}</dd></div><div><dt>修改时间</dt><dd>${e(archive.date.slice(0, 10))}</dd></div><div><dt>压缩方式</dt><dd>${e(archive.method || "待检测")}</dd></div><div><dt>加密状态</dt><dd><span class="safe-status">${icon(archive.encrypted ? "lock-keyhole" : "shield-check")}${archive.external ? "待检测" : archive.encrypted ? isLocked() ? "已加密" : "已解锁" : "未加密"}</span></dd></div></dl></div>${!archive.external ? renderDistribution(archive.entries) : ""}`;
     if (archive.native && archive.encrypted) $(".safe-status", panel).innerHTML = `${icon("lock-keyhole")}${isLocked() ? "已加密" : "已解锁"}`;
   }
 
@@ -274,8 +280,8 @@
     });
     count(entries || []);
     const sum = Object.values(totals).reduce((a, b) => a + b, 0);
-    const groups = [{ key: "design", name: "设计文件", color: "#a697c4" }, { key: "image", name: "图片", color: "#8db1a3" }, { key: "document", name: "文档", color: "#d9a686" }, { key: "other", name: "其他", color: "#c9d0da" }];
-    return `<div class="detail-section"><div class="detail-section-title">内容分布<span>按原始大小</span></div><div class="distribution-bar">${groups.filter((group) => totals[group.key]).map((group) => `<span style="width:${sum ? totals[group.key] / sum * 100 : 0}%;background:${group.color}" title="${group.name} ${C.formatBytes(totals[group.key])}"></span>`).join("")}</div><div class="distribution-legend">${groups.map((group) => `<span><i class="legend-dot" style="background:${group.color}"></i>${group.name}</span>`).join("")}</div></div>`;
+    const groups = [{ key: "design", name: "设计文件" }, { key: "image", name: "图片" }, { key: "document", name: "文档" }, { key: "other", name: "其他" }];
+    return `<div class="detail-section"><div class="detail-section-title">内容分布<span>按原始大小</span></div><div class="distribution-bar">${groups.filter((group) => totals[group.key]).map((group) => `<span class="distribution-${group.key}" style="width:${totals[group.key] / sum * 100}%" title="${group.name} ${C.formatBytes(totals[group.key])}"></span>`).join("")}</div><div class="distribution-legend">${groups.map((group) => `<span><i class="legend-dot distribution-${group.key}"></i>${group.name}</span>`).join("")}</div></div>`;
   }
 
   function renderCollection() {

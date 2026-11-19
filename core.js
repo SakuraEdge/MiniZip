@@ -4,7 +4,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
   const collator = new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" });
-  const archiveExtensions = new Set(["zip", "rar", "7z", "lz4", "tar", "gz", "tgz", "bz2", "xz", "zst", "zstd", "cab", "iso", "arj", "lzh", "lzma", "br", "001", "002"]);
+  const archiveExtensions = new Set(["zip", "zipx", "rar", "7z", "lz4", "tar", "gz", "tgz", "bz2", "xz", "zst", "zstd", "cab", "iso", "arj", "lzh", "lzma", "br", "001", "002"]);
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
   }

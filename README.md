@@ -4,17 +4,19 @@
 
 [GitHub 项目](https://github.com/SakuraEdge/MiniZip) · [下载与更新说明](https://github.com/SakuraEdge/MiniZip/releases) · [构建状态](https://github.com/SakuraEdge/MiniZip/actions)
 
-采用 M 字母应用图标。无示例数据、无广告，侧栏默认收起为图标；从资源管理器打开压缩包即可浏览内容。
+工作台和快速压缩小窗采用薄荷绿与浅蓝配色。应用保留 M 形拉链图标，关联的压缩文件使用独立的 C 款叠页图标。侧栏默认收起；双击压缩包即可浏览内容，没有示例数据或广告。
+
+![MiniZip 应用和关联文件图标，含资源管理器实际尺寸](design/file-icons/dev-v1.0.1.png)
 
 ## 运行
 
-运行 `release/MiniZip-Dev-1.0.1/MiniZip-Dev-1.0.1-Setup-x64.exe` 安装。
+[下载 Windows x64 安装包](https://github.com/SakuraEdge/MiniZip/releases/download/dev-v1.0.1/MiniZip-Dev-1.0.1-Setup-x64.exe)，或在旧版侧栏进入「软件更新」，开启「接收 Dev 开发版本」后检查更新。
 
-安装向导可选择注册常用压缩包格式、添加右键菜单、打开 Windows 默认应用设置。默认打开方式由 Windows 确认，不修改受保护的 UserChoice。Windows 11 的传统右键项可能位于“显示更多选项”。
+安装向导可选择注册常用压缩包格式、添加右键菜单、打开 Windows 默认应用设置。要在资源管理器里看到叠页图标，请将相应文件类型的默认应用设为 MiniZip。不会改动受保护的 UserChoice；Windows 11 的传统右键项可能位于“显示更多选项”。
 
 也可运行免安装目录中的 `release/MiniZip-Dev-1.0.1/MiniZip-win32-x64/MiniZip.exe`，请保留整个目录。
 
-安装后无需 Node.js、7-Zip 或 LZ4。文件处理完全本地执行；只有软件更新会请求 GitHub。开发构建尚未数字签名，Windows 可能显示未知发布者。
+安装后无需 Node.js、7-Zip 或 LZ4。文件处理完全本地执行；只有软件更新会请求 GitHub。Dev v1.0.1 的应用和安装包未做 Authenticode 签名，Windows 可能显示“未知发布者”。发布页提供 SHA-256 校验文件；该校验不等同于发布者签名。
 
 开发运行：
 
@@ -159,4 +161,4 @@ git push origin dev-v1.0.0
 
 见 `THIRD_PARTY_NOTICES.md`。原生工具来自对应官方发行版，安装包 SHA-256 固定在 `scripts/setup-engine.cjs`。
 
-用户界面与发布包不包含示例照片或示例压缩包。图标 C 的源文件是 `assets/favicon.svg`。
+用户界面与发布包不包含示例照片或示例压缩包。应用图标源文件是 `assets/favicon.svg`，叠页文件图标源文件是 `assets/archive.svg`。`npm run icons` 从两个源文件分别生成 16、20、24、32、48、64、128、256 px 的 ICO 图层；`node scripts/preview-release-icons.cjs` 直接使用这些图层生成上方对照图。

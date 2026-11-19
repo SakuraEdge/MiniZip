@@ -25,6 +25,14 @@ try {
   if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
   $installed = $true
   if (-not (Test-Path -LiteralPath (Join-Path $target 'MiniZip.exe'))) { throw 'Installed executable missing.' }
+  $archiveIcon = Join-Path $target 'resources\app\assets\archive.ico'
+  if (-not (Test-Path -LiteralPath $archiveIcon -PathType Leaf)) { throw 'Installed archive icon missing.' }
+  $expectedIcon = Join-Path $workspace 'assets\archive.ico'
+  if ((Get-FileHash -LiteralPath $archiveIcon).Hash -ne (Get-FileHash -LiteralPath $expectedIcon).Hash) { throw 'Unexpected archive icon content.' }
+  $registeredIcon = (Get-Item -LiteralPath 'HKCU:\Software\Classes\MiniZip.Archive\DefaultIcon').GetValue('')
+  if ($registeredIcon -ne ('"{0}",0' -f $archiveIcon)) { throw 'Archive association does not use the stacked-page icon.' }
+  $appIcon = (Get-Item -LiteralPath 'HKCU:\Software\MiniZip\Capabilities').GetValue('ApplicationIcon')
+  if ($appIcon -ne ('"{0}",0' -f (Join-Path $target 'MiniZip.exe'))) { throw 'Application should keep its own icon.' }
   $open = (Get-Item -LiteralPath 'HKCU:\Software\Classes\MiniZip.Archive\shell\open\command').GetValue('')
   $compress = (Get-Item -LiteralPath 'HKCU:\Software\Classes\Directory\shell\MiniZip\shell\20Compress\command').GetValue('')
   if ($open -notlike '*--open --*' -or $compress -notlike '*--compress --*') { throw 'Shell command registration is incorrect.' }
@@ -51,7 +59,7 @@ try {
   if ($association.GetValueNames() -notcontains 'MiniZip.Archive') { throw 'ZIP OpenWith association missing.' }
   $choiceAfter = if (Test-Path -LiteralPath $choicePath) { (Get-ItemProperty -LiteralPath $choicePath).ProgId } else { $null }
   if ($choiceBefore -ne $choiceAfter) { throw 'Protected default file association was changed.' }
-  Write-Output 'PASS: installed executable, file association, quoted Explorer commands and unchanged Windows UserChoice.'
+  Write-Output 'PASS: distinct application/archive icons, file association, quoted Explorer commands and unchanged Windows UserChoice.'
 } finally {
   if ($installed) {
     $uninstaller = Get-ChildItem -LiteralPath $target -File -Filter 'Uninstall*.exe' | Select-Object -First 1
@@ -68,6 +76,7 @@ try {
       if (Test-Path -LiteralPath $key) { throw "Uninstall left registration: $key" }
     }
     if (Test-Path -LiteralPath (Join-Path $target 'MiniZip.exe')) { throw 'Uninstall left executable behind.' }
+    if (Test-Path -LiteralPath (Join-Path $target 'resources\app\assets\archive.ico')) { throw 'Uninstall left archive icon behind.' }
     Write-Output 'PASS: uninstaller removed MiniZip registration and application files.'
   }
 }
