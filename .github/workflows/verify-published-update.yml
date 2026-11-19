@@ -1,0 +1,47 @@
+name: Verify Published Update
+on:
+  workflow_dispatch:
+    inputs:
+      previous_tag:
+        description: Published MiniZip version to check updates from
+        default: dev-v1.0.0
+        required: true
+permissions:
+  contents: read
+jobs:
+  live-updater:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install the verified previous release on the disposable runner
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_TAG: ${{ inputs.previous_tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:PREVIOUS_TAG -cnotmatch '^(dev|rev)-v(\d+\.\d+\.\d+)$') { throw 'Invalid previous release tag.' }
+          $channel = if ($Matches[1] -eq 'dev') { 'Dev' } else { 'Rev' }
+          $file = "MiniZip-$channel-$($Matches[2])-Setup-x64.exe"
+          $assets = Join-Path $env:RUNNER_TEMP 'minizip-prior-release'
+          $target = Join-Path $env:RUNNER_TEMP 'minizip-prior-app'
+          if ((Test-Path -LiteralPath $target) -or (Test-Path -LiteralPath 'HKCU:\Software\MiniZip')) { throw 'Expected a clean runner.' }
+          gh release download $env:PREVIOUS_TAG -R $env:GITHUB_REPOSITORY --pattern $file --pattern "$file.sha256" --dir $assets
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download previous release.' }
+          $installer = Join-Path $assets $file
+          $digest = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
+          $line = (Get-Content -LiteralPath "$installer.sha256" -Raw).Trim() -split '\s+',2
+          if ($line.Count -ne 2 -or $line[0] -ne $digest -or $line[1] -cne $file) { throw 'Previous release checksum mismatch.' }
+          $p = Start-Process -FilePath $installer -ArgumentList @('/S','/currentuser',"/D=$target") -WindowStyle Hidden -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Previous installation failed: $($p.ExitCode)" }
+      - name: Check public notes and download using the shipped updater
+        shell: pwsh
+        env:
+          PREVIOUS_TAG: ${{ inputs.previous_tag }}
+        run: node scripts/verify-published-update.cjs (Join-Path $env:RUNNER_TEMP 'minizip-prior-app/resources/app') $env:PREVIOUS_TAG
