@@ -4,7 +4,7 @@ on:
     inputs:
       previous_tag:
         description: Published MiniZip version to check updates from
-        default: dev-v1.0.0
+        default: dev-v1.0.1
         required: true
 permissions:
   contents: read

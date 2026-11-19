@@ -1,6 +1,7 @@
 param(
   [Parameter(Mandatory = $true)][string]$Installer,
-  [string]$PreviousInstaller
+  [string]$PreviousInstaller,
+  [string]$PreviousTag
 )
 $ErrorActionPreference = 'Stop'
 $workspace = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -9,6 +10,8 @@ if (-not $target.StartsWith($workspace + [IO.Path]::DirectorySeparatorChar, [Str
 if (Test-Path -LiteralPath 'HKCU:\Software\MiniZip') { throw 'An existing MiniZip installation was found. Test stopped without changes.' }
 if (Test-Path -LiteralPath $target) { throw 'Test target already exists; refusing to overwrite.' }
 $installerPath = (Resolve-Path -LiteralPath $Installer).Path
+$config = Get-Content -LiteralPath (Join-Path $workspace 'release-config.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$installedConfig = Join-Path $target 'resources\app\release-config.json'
 $choicePath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.zip\UserChoice'
 $choiceBefore = if (Test-Path -LiteralPath $choicePath) { (Get-ItemProperty -LiteralPath $choicePath).ProgId } else { $null }
 $installed = $false
@@ -18,13 +21,19 @@ try {
     $process = Start-Process -FilePath $previousPath -ArgumentList @('/S', '/currentuser', "/D=$target") -WindowStyle Hidden -PassThru -Wait
     if ($process.ExitCode -ne 0) { throw "Previous installation failed: $($process.ExitCode)" }
     $installed = $true
-    if (-not (Test-Path -LiteralPath 'HKCU:\Software\Classes\*\shell\MiniZip.Open')) { throw 'Previous flat menu fixture missing.' }
+    $prior = Get-Content -LiteralPath $installedConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (($PreviousTag -and $prior.tag -cne $PreviousTag) -or $prior.tag -ceq $config.tag) { throw 'Unexpected previous release in upgrade fixture.' }
     Write-Output 'Installed previous release for upgrade verification.'
   }
   $process = Start-Process -FilePath $installerPath -ArgumentList @('/S', '/currentuser', "/D=$target") -WindowStyle Hidden -PassThru -Wait
   if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
   $installed = $true
   if (-not (Test-Path -LiteralPath (Join-Path $target 'MiniZip.exe'))) { throw 'Installed executable missing.' }
+  $current = Get-Content -LiteralPath $installedConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+  if ($current.tag -cne $config.tag -or $current.installerName -cne $config.installerName) { throw 'Installed release metadata does not match the build.' }
+  foreach ($file in @('desktop\program-runs.cjs', 'engines\shell\MiniZip.ExternalFile.exe', 'file-gestures.js')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $target "resources\app\$file") -PathType Leaf)) { throw "Installed component missing: $file" }
+  }
   $archiveIcon = Join-Path $target 'resources\app\assets\archive.ico'
   if (-not (Test-Path -LiteralPath $archiveIcon -PathType Leaf)) { throw 'Installed archive icon missing.' }
   $expectedIcon = Join-Path $workspace 'assets\archive.ico'

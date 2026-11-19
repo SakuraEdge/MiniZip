@@ -16,6 +16,14 @@
   }
   function extension(name) { return String(name).split(".").pop().toLowerCase(); }
   function isArchive(name) { return archiveExtensions.has(extension(name)); }
+  const rasterMime = new Map(Object.entries({ jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif", avif: "image/avif" }));
+  function previewSpec(name) {
+    const ext = extension(name);
+    if (rasterMime.has(ext)) return { kind: "image", mime: rasterMime.get(ext), limit: 12 * 1024 ** 2 };
+    if (ext === "pdf") return { kind: "pdf", mime: "application/pdf", limit: 24 * 1024 ** 2 };
+    if (kindFor(name) === "text") return { kind: "text", mime: "text/plain", limit: 1024 ** 2 };
+    return null;
+  }
   function kindFor(name) {
     const ext = extension(name);
     if (["jpg", "jpeg", "png", "webp", "gif", "avif", "svg"].includes(ext)) return "image";
@@ -86,5 +94,5 @@
     return { name: rootName, entries, size: updateSize(entries) };
   }
   function validatePassword(password) { return typeof password === "string" && password.length > 0; }
-  return { escapeHtml, formatBytes, extension, isArchive, kindFor, filterAndSort, visibleEntries, countEntries, buildFolderTree, validatePassword };
+  return { escapeHtml, formatBytes, extension, isArchive, kindFor, previewSpec, filterAndSort, visibleEntries, countEntries, buildFolderTree, validatePassword };
 });

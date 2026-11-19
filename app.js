@@ -29,8 +29,9 @@
     history: [],
     favorites: new Set(),
     sidebarExpanded: preferences.sidebarExpanded === true,
-    update: { status: "idle", current: "Dev v1.0.1", repository: null, autoCheck: true, allowDev: true, available: null, error: null },
+    update: { status: "idle", current: $(".preview-tag").textContent, repository: null, autoCheck: true, allowDev: true, available: null, error: null },
     edits: { count: 0, entries: [], canUpdate: false, busy: false },
+    program: null,
     tasks: [],
     taskTab: "all",
     dialog: null,
@@ -41,6 +42,8 @@
     previewUrl: null
   };
   const dialog = $("#app-dialog");
+  const fileMenu = $("#file-menu");
+  let rowIndex = new Map(), menuAnchor, previewRequest = 0;
   let toastTimeout;
 
   async function callNative(method, ...args) {
@@ -52,6 +55,7 @@
     if (!archive) return;
     archives.set(archive.id, archive);
     if (focus) {
+      state.program = null;
       state.edits = { count: 0, entries: [], canUpdate: Boolean(archive.canUpdate), busy: false };
       openArchive(archive.id);
       if (archive.launchAction?.startsWith("extract")) {
@@ -79,6 +83,9 @@
     else state.tasks.unshift(task);
     if (focus) { state.taskTab = "all"; closeDialog(); navigate("tasks"); }
     else { if (state.page === "tasks") { renderTasks(); paintIcons(); } updateTaskStatus(); }
+    if (task.kind === "rename" && task.status === "completed" && state.archive?.id === task.archiveId && rowIndex.has(task.result?.renamedTo)) {
+      selectItem(task.result.renamedTo); toast("已重命名，原包备份已保留");
+    } else if (task.kind === "rename" && task.status === "failed") toast(task.error.message, true);
   }
   async function pickNative(method, ...args) {
     $("#global-status").textContent = "正在读取文件…";
@@ -123,6 +130,7 @@
   }
 
   function render() {
+    hideFileMenu();
     const titles = { browser: "文件浏览", recent: "最近打开", favorites: "我的收藏", tasks: "文件任务", updates: "软件更新" };
     $("#page-title").textContent = titles[state.page];
     $(".workspace-name").textContent = titles[state.page];
@@ -148,6 +156,7 @@
     else if (state.page === "updates") renderUpdates();
     else renderCollection();
     renderEditNotice();
+    renderProgramNotice();
     updateTaskStatus();
     $("#recent-count").textContent = state.history.length;
     paintIcons();
@@ -156,10 +165,27 @@
   function renderEditNotice() {
     const notice = $("#edit-notice");
     const value = state.edits;
-    notice.hidden = !state.archive || !value.count;
+    const copies = value.copies || [];
+    const active = copies.filter(x => !x.ended && !x.nested);
+    notice.hidden = !state.archive || !(value.count || active.length || copies.some(x => x.ended));
     if (notice.hidden) return;
     const names = value.entries.map((entry) => entry.entryId + (entry.missing ? "（副本不可读取）" : "")).join("、");
-    notice.innerHTML = `<div class="edit-message">${icon("file-pen-line")}<div><strong>${value.count} 个文件有改动，是否保存到压缩包？</strong><span>${e(names)}</span>${!value.canUpdate ? `<span>此格式不支持写回，可另存修改后的文件。</span>` : ""}</div></div><div class="edit-actions"><button class="icon-button" data-action="reveal-edits" aria-label="打开工作副本" title="打开工作副本">${icon("folder-open")}</button><button class="button secondary" data-action="export-edits" ${value.busy ? "disabled" : ""}>${icon("save-all")}另存副本</button>${value.canUpdate ? `<button class="button primary" data-action="save-edits" ${value.busy || value.entries.some((entry) => entry.missing) ? "disabled" : ""}>${icon("save")}保存到压缩包</button>` : ""}</div>`;
+    const heading = value.count ? `${value.count} 个文件有改动，是否保存到压缩包？` : active.length ? `${active.length} 个文件在外部应用中打开` : "等待释放临时文件";
+    const discardable = value.entries.some(x => !x.missing && copies.some(c => c.id === x.entryId && c.ended));
+    notice.innerHTML = `<div class="edit-message">${icon("file-pen-line")}<div><strong>${heading}</strong><span>${e(names || active.slice(0, 3).map(x => x.id).join("、"))}</span>${value.count && !value.canUpdate ? "<span>此格式不支持写回，可另存修改后的文件。</span>" : ""}</div></div><div class="edit-actions"><button class="icon-button" data-action="reveal-edits" aria-label="打开临时文件目录" title="打开临时文件目录">${icon("folder-open")}</button>${active.length ? `<button class="button secondary" data-action="finish-edits" ${value.busy ? "disabled" : ""}>${icon("circle-check")}结束外部编辑</button>` : ""}${discardable ? `<button class="button secondary" data-action="discard-edits" ${value.busy ? "disabled" : ""}>不更新</button>` : ""}${value.count ? `<button class="button secondary" data-action="export-edits" ${value.busy ? "disabled" : ""}>${icon("save-all")}另存副本</button>${value.canUpdate ? `<button class="button primary" data-action="save-edits" ${value.busy || value.entries.some(x => x.missing) ? "disabled" : ""}>${icon("save")}保存到压缩包</button>` : ""}` : ""}</div>`;
+    paintIcons(notice);
+  }
+
+  function renderProgramNotice() {
+    const notice = $("#program-notice"), p = state.program;
+    notice.hidden = !p || p.phase === "idle" || state.archive?.id !== p.archiveId;
+    if (notice.hidden) { notice.replaceChildren(); return; }
+    const headings = { preparing: "正在准备临时目录", running: "程序运行中", untracked: "等待确认程序已退出", checking: "正在检查运行数据", review: `程序已退出，${p.changes.length} 个文件有变化。是否更新压缩包？`, saving: "正在更新压缩包", cleaning: "正在清理临时目录", "scan-error": "暂时无法检查运行数据", "cleanup-error": "临时目录尚未清理完毕" };
+    const types = { modified: "修改", added: "新增", removed: "删除" };
+    const btn = (key, glyph, text, primary = false) => `<button class="button ${primary ? "primary" : "secondary"}" data-action="program-action" data-program-action="${key}">${icon(glyph)}${text}</button>`;
+    const review = p.phase === "review";
+    const list = review ? `<details open><summary>变更明细</summary><ul>${p.changes.map(c => `<li>${types[c.type]} · ${e(c.id)}</li>`).join("")}</ul></details>` : "";
+    notice.innerHTML = `<div class="edit-message">${icon(review ? "files" : "monitor")}<div><strong>${e(headings[p.phase])}</strong><span>${e(p.entryId)}</span>${list}${p.error ? `<span>${e(p.error)}</span>` : ""}${review && !p.writable ? "<span>此格式只读，可在临时目录中另存文件。</span>" : ""}</div></div><div class="edit-actions">${p.directory && !["preparing", "cleaning"].includes(p.phase) ? `<button class="icon-button" data-action="program-action" data-program-action="reveal" title="打开运行目录" aria-label="打开运行目录">${icon("folder-open")}</button>` : ""}${review ? btn("discard", "x", "不更新") + (p.writable ? btn("save", "save", "更新压缩包", true) : "") : p.phase === "untracked" ? btn("finish", "circle-check", "已退出程序") : p.phase.endsWith("-error") ? btn("retry", "refresh-cw", p.phase === "scan-error" ? "重新检查" : "重试清理") : ""}</div>`;
     paintIcons(notice);
   }
 
@@ -173,6 +199,7 @@
     $("#details-panel").hidden = !hasArchive;
     $("#selection-bar").hidden = !state.selection.size;
     if (!archive) {
+      rowIndex.clear();
       $("#file-content").innerHTML = `<div class="empty-state"><span class="empty-icon">${icon("folder-open")}</span><h3>尚未打开压缩包</h3><p>ZIP · RAR · 7Z · TAR · LZ4</p><button class="button primary" data-action="open">${icon("plus")}打开压缩包</button></div>`;
       return;
     }
@@ -223,6 +250,7 @@
   }
 
   function renderFiles() {
+    hideFileMenu(); rowIndex.clear();
     const archive = state.archive;
     if (!archive) return;
     $("#archive-kind").textContent = archive.format;
@@ -254,6 +282,7 @@
       const selectedVisible = entries.filter((item) => state.selection.has(item.id)).length;
       $("#select-all").indeterminate = selectedVisible > 0 && selectedVisible < entries.length;
     }
+    rowIndex = new Map($$("[data-file-id]", $("#file-content")).map(row => [row.dataset.fileId, row]));
     paintIcons();
   }
 
@@ -264,7 +293,9 @@
     const panel = $("#details-panel");
     const heading = `<div class="details-heading"><span>${item ? "文件信息" : "压缩包信息"}</span><button class="small-icon-button" data-action="close-details" aria-label="隐藏详情" title="隐藏详情">${icon("panel-right-close")}</button></div>`;
     if (item && !isLocked()) {
-      panel.innerHTML = `${heading}<div class="detail-preview">${item.thumbnail ? `<img class="details-photo" src="${e(item.thumbnail)}" alt="${e(item.name)}" />` : fileIcon(item, true)}<strong class="detail-preview-name" title="${e(item.name)}">${e(item.name)}</strong><span class="detail-preview-subtitle">${e(item.type)}</span></div><div class="detail-section"><div class="detail-section-title">基本信息</div><dl><div><dt>文件大小</dt><dd>${C.formatBytes(item.size)}</dd></div>${!archive.folder ? `<div><dt>压缩后</dt><dd>${C.formatBytes(item.packed)}</dd></div>` : ""}<div><dt>修改时间</dt><dd>${e(item.date || "—")}</dd></div>${item.dimensions ? `<div><dt>图像尺寸</dt><dd>${e(item.dimensions)}</dd></div>` : ""}<div><dt>位置</dt><dd>${e(archive.name)}</dd></div></dl></div><div class="detail-actions"><button class="button secondary" data-action="open-item" data-id="${e(item.id)}">${icon(item.kind === "folder" ? "folder-open" : state.archive.native ? "external-link" : "eye")}${item.kind === "folder" ? "打开文件夹" : state.archive.native ? item.kind === "archive" ? "在新工作台打开" : "打开文件" : "预览文件"}</button>${state.archive.native && ["text", "image"].includes(item.kind) ? `<button class="button subtle" data-action="preview-item" data-id="${e(item.id)}">${icon("eye")}预览文件</button>` : ""}${!archive.folder ? `<button class="button subtle" data-action="extract-item" data-id="${e(item.id)}">${icon("arrow-down-to-line")}解压此${item.kind === "folder" ? "文件夹" : "文件"}</button>` : ""}</div>`;
+      const readable = item.kind !== "folder" && C.previewSpec(item.name) && (!archive.folder || !archive.native);
+      const openLabel = item.kind === "folder" ? "打开文件夹" : item.kind === "archive" && archive.native ? "在新工作台打开" : readable ? "预览文件" : "打开文件";
+      panel.innerHTML = `${heading}<div class="detail-preview">${item.thumbnail ? `<img class="details-photo" src="${e(item.thumbnail)}" alt="${e(item.name)}" />` : fileIcon(item, true)}<strong class="detail-preview-name" title="${e(item.name)}">${e(item.name)}</strong><span class="detail-preview-subtitle">${e(item.type)}</span></div><div class="detail-section"><div class="detail-section-title">基本信息</div><dl><div><dt>文件大小</dt><dd>${C.formatBytes(item.size)}</dd></div>${!archive.folder ? `<div><dt>压缩后</dt><dd>${C.formatBytes(item.packed)}</dd></div>` : ""}<div><dt>修改时间</dt><dd>${e(item.date || "—")}</dd></div>${item.dimensions ? `<div><dt>图像尺寸</dt><dd>${e(item.dimensions)}</dd></div>` : ""}<div><dt>位置</dt><dd>${e(archive.name)}</dd></div></dl></div><div class="detail-actions"><button class="button secondary" data-action="open-item" data-id="${e(item.id)}">${icon(item.kind === "folder" ? "folder-open" : readable ? "eye" : "external-link")}${openLabel}</button>${archive.native && !archive.folder && !["folder", "archive"].includes(item.kind) ? externalButton(item.id) : ""}${!archive.folder ? `<button class="button subtle" data-action="extract-item" data-id="${e(item.id)}">${icon("arrow-down-to-line")}解压此${item.kind === "folder" ? "文件夹" : "文件"}</button>` : ""}</div>`;
       return;
     }
     const counts = C.countEntries(archive.entries || []);
@@ -311,10 +342,10 @@
   }
 
   function taskMarkup(task) {
-      const names = { extract: "解压", test: "完整性测试", delete: "删除", compress: "压缩", update: "保存修改" };
+      const names = { extract: "解压", test: "完整性测试", delete: "删除", rename: "重命名", compress: "压缩", update: "保存修改" };
       const labels = { running: task.phase === "committing" ? "正在提交" : `${names[task.kind]}中`, completed: "已完成", failed: "失败", cancelled: "已取消" };
       const result = task.result || {};
-      const note = task.status === "completed" ? task.kind === "extract" ? `${result.files} 个文件已解压${result.skipped ? ` · 跳过 ${result.skipped} 个` : ""}${result.renamed ? ` · 重命名 ${result.renamed} 个` : ""}` : task.kind === "compress" ? `压缩完成 · ${C.formatBytes(result.size)}` : task.kind === "test" ? "完整性检查通过" : task.kind === "update" ? `${result.updated} 个修改已保存，原包备份已保留` : result.backupPath ? "删除完成，原包备份已保留" : "所选文件已移至回收站" : "";
+      const note = task.status === "completed" ? task.kind === "extract" ? `${result.files} 个文件已解压${result.skipped ? ` · 跳过 ${result.skipped} 个` : ""}${result.renamed ? ` · 重命名 ${result.renamed} 个` : ""}` : task.kind === "rename" ? `已重命名为 ${result.renamedTo}，原包备份已保留` : task.kind === "compress" ? `压缩完成 · ${C.formatBytes(result.size)}` : task.kind === "test" ? "完整性检查通过" : task.kind === "update" ? `${result.updated} 个修改已保存，原包备份已保留` : result.backupPath ? "删除完成，原包备份已保留" : "所选文件已移至回收站" : "";
       return `<article class="task-card" data-task-id="${task.id}"><div class="task-card-top">${archiveIcon(task)}<div class="task-card-title"><h3>${e(task.name)}</h3><p>${e(task.destination)} · ${names[task.kind]}</p></div><span class="task-card-state ${task.status}">${labels[task.status]}</span></div><div class="task-progress ${task.status}${task.progress === null && task.status === "running" ? " indeterminate" : ""}"><span style="width:${task.progress || 0}%"></span></div><div class="task-card-bottom"><span>${task.progress === null ? "" : task.progress + "%"}${task.phase === "committing" ? " · 正在安全提交" : ""}</span><div class="task-card-actions">${task.status === "running" ? `<button class="icon-button" data-action="task-cancel" data-id="${task.id}" title="取消任务" aria-label="取消任务" ${task.canCancel ? "" : "disabled"}>${icon("x")}</button>` : `${task.status === "completed" ? `<button class="icon-button" data-action="task-reveal" data-id="${task.id}" title="打开所在目录" aria-label="打开所在目录">${icon("folder-open")}</button>` : ""}<button class="icon-button" data-action="task-remove" data-id="${task.id}" title="移除记录" aria-label="移除记录">${icon("trash-2")}</button>`}</div></div>${task.error ? `<p class="task-error">${e(task.error.message)}</p>` : note ? `<p class="task-completion-note">${e(note)}</p>` : ""}</article>`;
   }
 
@@ -327,6 +358,7 @@
   }
 
   function navigate(page) {
+    previewRequest++;
     state.page = page;
     document.body.classList.remove("sidebar-open");
     $(".sidebar-backdrop").hidden = true;
@@ -345,6 +377,7 @@
     navigate("browser");
   }
   function changePath(path) {
+    previewRequest++;
     state.path = path;
     state.query = "";
     state.selection.clear();
@@ -361,24 +394,23 @@
     renderDetails();
     paintIcons();
   }
-  function updateSelection() {
-    $$("[data-file-id]").forEach((row) => {
+  function updateSelection(changedRows = rowIndex.values()) {
+    for (const row of changedRows) {
       const selected = state.selection.has(row.dataset.fileId);
       row.classList.toggle("selected", selected);
       if (row.tagName === "TR") row.setAttribute("aria-selected", selected);
       const checkbox = $("input[data-select-id]", row);
       if (checkbox) checkbox.checked = selected;
-    });
+    }
     $("#selection-bar").hidden = !state.selection.size;
     $("#selection-text").textContent = `已选择 ${state.selection.size} 个项目`;
     $("[data-action='extract-selected']").disabled = Boolean(state.archive?.folder);
     updateDeleteButton();
     const allCheckbox = $("#select-all");
     if (allCheckbox) {
-      const entries = filteredEntries();
-      const selected = entries.filter((item) => state.selection.has(item.id)).length;
-      allCheckbox.checked = selected === entries.length && entries.length > 0;
-      allCheckbox.indeterminate = selected > 0 && selected < entries.length;
+      const selected = state.selection.size;
+      allCheckbox.checked = selected === rowIndex.size && selected > 0;
+      allCheckbox.indeterminate = selected > 0 && selected < rowIndex.size;
     }
   }
   function updateDeleteButton() {
@@ -405,7 +437,7 @@
   }
 
   function openDialog(type, body, footer = "", title = "", wide = false) {
-    if (dialog.open) dialog.close();
+    closeDialog(); hideFileMenu();
     state.dialog = type;
     dialog.classList.toggle("preview-dialog", wide);
     dialog.innerHTML = `<div class="dialog-head"><h2 id="dialog-title">${e(title)}</h2><button class="icon-button" data-action="dialog-close" title="关闭" aria-label="关闭对话框">${icon("x")}</button></div>${body}${footer ? `<div class="dialog-footer">${footer}</div>` : ""}`;
@@ -413,9 +445,11 @@
     paintIcons();
   }
   function closeDialog() {
+    previewRequest++;
     const password = $("#archive-password");
     if (password) password.value = "";
     if (dialog.open) dialog.close();
+    dialog.replaceChildren();
     state.dialog = null;
     if (state.previewUrl) { URL.revokeObjectURL(state.previewUrl); state.previewUrl = null; }
   }
@@ -518,39 +552,51 @@
     openDialog("about", `<div class="dialog-body"><div class="about-brand"><img class="brand-logo" src="assets/favicon.svg" alt="" /><div><h3>MiniZip</h3><p>${e(state.update.current)} · Windows x64</p></div></div><p class="about-copy">7-Zip 26.06 · LZ4 1.10.0 · zip.js</p><div class="format-chips">${["ZIP", "RAR / RAR5", "7Z", "LZ4", "TAR", "GZ", "XZ", "ZSTD"].map((format) => `<span>${format}</span>`).join("")}</div><p class="field-hint">压缩：ZIP / 7Z。删除包内文件：未加密 ZIP / 7Z / TAR。RAR 等格式只读。</p></div>`, `<button class="button secondary" data-action="default-apps">默认应用设置</button>${doneButton}`, "关于 MiniZip");
   }
 
-  async function openItem(id, previewOnly = false) {
+  function externalButton(id) { return `<button class="button secondary" data-action="external-item" data-id="${e(id)}" title="使用临时文件打开">${icon("external-link")}用外部应用打开</button>`; }
+  async function externalOpen(id) {
+    closeDialog();
+    $("#global-status").textContent = "正在打开文件…";
+    try { await callNative("openEntry", state.archive.id, id); } finally { updateTaskStatus(); }
+  }
+  function offerExternal(item, message) {
+    openDialog("external", `<div class="dialog-body"><p class="dialog-subtitle">${e(message)} 交给外部应用时，只会取出这个文件作为临时副本。</p></div>`, `${cancelButton}<button class="button secondary" data-action="extract-item" data-id="${e(item.id)}">${icon("folder-down")}解压到…</button>${externalButton(item.id)}`, item.name);
+  }
+  function displayPreview(item, spec, content, blob) {
+    const markup = spec.kind === "text" ? '<pre class="preview-code"></pre>' : spec.kind === "pdf" ? '<iframe class="preview-pdf" title="PDF 只读预览"></iframe>' : '<img class="preview-image" alt="" />';
+    openDialog("preview", `<div class="dialog-body">${markup}</div>`, state.archive.native ? externalButton(item.id) : "", item.name, true);
+    if (spec.kind === "text") $(".preview-code", dialog).textContent = content;
+    else {
+      state.previewUrl = URL.createObjectURL(blob);
+      const element = $(spec.kind === "pdf" ? "iframe" : "img", dialog);
+      if (spec.kind === "image") element.alt = item.name;
+      element.src = state.previewUrl;
+    }
+  }
+  async function openItem(id) {
     const item = currentItem(id);
     if (!item) return;
     if (item.kind === "folder") { changePath([...state.path, id]); return; }
-    if (state.archive.native) {
-      try {
-        if (!previewOnly) {
-          $("#global-status").textContent = "正在打开文件…";
-          await callNative("openEntry", state.archive.id, id);
-          updateTaskStatus();
-          return;
-        }
-        const preview = await callNative("preview", state.archive.id, id);
-        openDialog("preview", `<div class="dialog-body">${preview.kind === "text" ? `<pre class="preview-code">${e(preview.content)}</pre>` : `<img class="preview-image" src="${e(preview.dataUrl)}" alt="${e(item.name)}" />`}</div>`, "", item.name, true);
-      } catch (error) { updateTaskStatus(); toast(error.message, true); }
-      return;
-    }
-    if (item.file) {
-      if (item.kind === "image" && ["jpg", "jpeg", "png", "webp", "gif", "avif"].includes(C.extension(item.name))) {
-        state.previewUrl = URL.createObjectURL(item.file);
-        openDialog("preview", `<div class="dialog-body"><img class="preview-image" src="${state.previewUrl}" alt="${e(item.name)}" /></div>`, "", item.name, true);
+    const archive = state.archive, spec = C.previewSpec(item.name);
+    if (archive.native && (archive.folder || item.kind === "archive" || /\.exe$/i.test(item.name))) return externalOpen(id);
+    const request = ++previewRequest;
+    try {
+      if (!spec || item.size > spec.limit) {
+        const reason = spec ? `文件超过 ${C.formatBytes(spec.limit)} 的预览上限。` : "此类型不支持内置预览。";
+        if (archive.native) offerExternal(item, reason); else toast(reason, true);
         return;
       }
-      if (item.kind === "text") {
-        if (item.size > 1024 * 1024) { toast("当前文本预览上限为 1 MB", true); return; }
-        try {
-          const content = await item.file.text();
-          openDialog("preview", `<div class="dialog-body"><pre class="preview-code">${e(content)}</pre></div>`, "", item.name, true);
-        } catch { toast("无法读取此文件，请重新选择", true); }
-        return;
+      if (archive.native) {
+        $("#global-status").textContent = "正在读取预览…";
+        const preview = await callNative("preview", archive.id, id);
+        if (request === previewRequest) displayPreview(item, spec, preview.content, preview.bytes && new Blob([preview.bytes], { type: spec.mime }));
+      } else if (item.file) {
+        const text = spec.kind === "text" ? await item.file.text() : null;
+        if (request === previewRequest) displayPreview(item, spec, text, item.file.slice(0, item.size, spec.mime));
       }
-    }
-    openDialog("preview", `<div class="dialog-body"><div class="empty-state">${fileIcon(item, true)}<h3>此类型暂不支持预览</h3><p>${e(item.type)} · ${C.formatBytes(item.size)}</p></div></div>`, doneButton, item.name);
+    } catch (error) {
+      if (request !== previewRequest) return;
+      if (archive.native && ["PREVIEW_LIMIT", "NO_PREVIEW"].includes(error.code)) offerExternal(item, error.message); else toast(error.message, true);
+    } finally { updateTaskStatus(); }
   }
   function importArchive(file) {
     if (!file) return;
@@ -574,6 +620,46 @@
     const archive = state.archive;
     if (archive.native) { acceptNativeTask(await callNative("remove", { archiveId: archive.id, selection: [...state.selection] }), true); return; }
     showEngineNotice();
+  }
+  function hideFileMenu(restore = false) {
+    fileMenu.hidden = true;
+    if (restore && menuAnchor?.isConnected) menuAnchor.focus({ preventScroll: true });
+    menuAnchor = null;
+  }
+  function showFileMenu(row, x, y) {
+    const item = currentItem(row.dataset.fileId), a = state.archive, one = state.selection.size === 1;
+    if (!item) return;
+    menuAnchor = row;
+    const command = (action, glyph, text, allowed, reason = "", danger = false) => `<button role="menuitem" data-action="${action}" data-id="${e(item.id)}" ${allowed ? "" : `disabled title="${e(reason)}"`} ${danger ? 'class="menu-danger"' : ""}>${icon(glyph)}${text}</button>`;
+    fileMenu.innerHTML = command("open-item", "folder-open", item.kind === "archive" ? "在新工作台打开" : "打开", one) + (a.native && !a.folder && !["folder", "archive"].includes(item.kind) ? command("external-item", "external-link", "用外部应用打开", one) : "") + (!a.folder ? command("extract-selected", "folder-down", "解压所选到…", a.native) : "") + "<hr>" + command("rename-item", "pencil", "重命名", one && a.canRename, one ? "此位置不支持重命名" : "请选择一个项目") + command("delete-selected", "trash-2", a.folder ? "移到回收站" : "删除", a.native && a.canDelete, "此位置只读", true);
+    paintIcons(fileMenu); fileMenu.hidden = false;
+    const r = fileMenu.getBoundingClientRect();
+    fileMenu.style.left = Math.max(4, Math.min(x, innerWidth - r.width - 5)) + "px";
+    fileMenu.style.top = Math.max(4, Math.min(y, innerHeight - r.height - 5)) + "px";
+    ($("button:not(:disabled)", fileMenu) || fileMenu).focus({ preventScroll: true });
+  }
+  function showRename() {
+    if (!state.archive?.canRename || state.selection.size !== 1) return;
+    const item = currentItem(state.selection.values().next().value);
+    if (!item) return;
+    openDialog("rename", `<form id="rename-form" data-id="${e(item.id)}"><div class="dialog-body"><div class="field-group"><label for="entry-name">新名称</label><input id="entry-name" value="${e(item.name)}" maxlength="255" required autocomplete="off"><p id="rename-error" class="field-error" role="alert"></p></div></div><div class="dialog-footer">${cancelButton}<button type="submit" class="button primary">${icon("check")}重命名</button></div></form>`, "", "重命名");
+    const field = $("#entry-name"); field.focus(); const dot = item.name.lastIndexOf("."); field.setSelectionRange(0, item.kind !== "folder" && dot > 0 ? dot : item.name.length);
+  }
+  async function submitRename(form) {
+    const submit = $("[type=submit]", form); submit.disabled = true;
+    try {
+      const task = await callNative("rename", state.archive.id, form.dataset.id, $("#entry-name").value);
+      closeDialog(); acceptNativeTask(task);
+    } catch (error) { if (form.isConnected) $("#rename-error").textContent = error.message; }
+    finally { submit.disabled = false; }
+  }
+  async function finishExternal(id) {
+    const active = (state.edits.copies || []).filter(x => !x.ended && !x.nested);
+    if (!id && active.length > 1) {
+      openDialog("finish", `<div class="dialog-body">${active.map(x => `<button class="button secondary" data-action="finish-edits" data-id="${e(x.id)}">${icon("file-check")}${e(x.id)}</button>`).join(" ")}</div>`, cancelButton, "结束哪一个文件的外部编辑？"); return;
+    }
+    if (!id && !active.length) return;
+    closeDialog(); state.edits = await callNative("finishEdits", state.archive.id, id || active[0].id); renderEditNotice();
   }
 
   const actions = {
@@ -613,11 +699,20 @@
     up: () => { if (state.path.length) changePath(state.path.slice(0, -1)); },
     "clear-search": () => { state.query = ""; $("#file-search").value = ""; renderFiles(); },
     "open-item": (button) => openItem(button.dataset.id),
-    "preview-item": (button) => openItem(button.dataset.id, true),
+    "external-item": (button) => externalOpen(button.dataset.id),
+    "program-action": async button => {
+      const p = state.program; if (!p || p.archiveId !== state.archive?.id) return;
+      button.disabled = true;
+      try { const task = await callNative("programAction", p.archiveId, p.token, p.revision, button.dataset.programAction); if (task) acceptNativeTask(task); }
+      finally { if (button.isConnected) button.disabled = false; }
+    },
+    "rename-item": showRename,
+    "finish-edits": button => finishExternal(button.dataset.id),
+    "discard-edits": async () => { state.edits = await callNative("discardEdits", state.archive.id); renderEditNotice(); },
     "save-edits": async () => { acceptNativeTask(await callNative("saveEdits", state.archive.id)); toast("正在保存修改…"); },
     "export-edits": async () => { if (await callNative("exportEdits", state.archive.id)) toast("修改副本已另存"); },
     "reveal-edits": () => callNative("revealEdits", state.archive.id),
-    "work-files": () => native ? callNative("workFiles") : showEngineNotice(),
+    "work-files": async () => { if (!native) showEngineNotice(); else if (!await callNative("workFiles")) toast("没有保留的临时文件"); },
     extract: () => showExtraction(),
     "extract-here": extractHere,
     "delete-selected": deleteSelected,
@@ -650,10 +745,30 @@
     "clear-tasks": () => { state.tasks = state.tasks.filter((task) => ["running", "paused"].includes(task.status)); render(); }
   };
 
+  window.installFileGestures({ content: $("#file-content"), enabled: () => state.page === "browser" && rowIndex.size > 0 && !dialog.open, getSelection: () => state.selection, onMenu: showFileMenu, onSelect(next, final) {
+    const previous = state.selection, changed = [];
+    for (const id of next) if (!previous.has(id) && rowIndex.has(id)) changed.push(rowIndex.get(id));
+    for (const id of previous) if (!next.has(id) && rowIndex.has(id)) changed.push(rowIndex.get(id));
+    state.selection = next; state.focusedId = next.size === 1 ? next.values().next().value : null;
+    updateSelection(changed);
+    if (final) { renderDetails(); paintIcons($("#details-panel")); }
+  } });
+  document.addEventListener("pointerdown", event => { if (!fileMenu.hidden && !fileMenu.contains(event.target)) hideFileMenu(); });
+  window.addEventListener("blur", () => hideFileMenu()); window.addEventListener("resize", () => hideFileMenu());
+  $("#file-content").addEventListener("scroll", () => hideFileMenu(), { passive: true });
+  fileMenu.addEventListener("keydown", event => {
+    const buttons = $$("button:not(:disabled)", fileMenu), i = buttons.indexOf(document.activeElement);
+    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && buttons.length) {
+      event.preventDefault(); buttons[event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (i + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length].focus();
+    } else if (["Escape", "Tab"].includes(event.key)) { if (event.key === "Escape") event.preventDefault(); hideFileMenu(true); }
+    event.stopPropagation();
+  });
+
   document.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
     if (button) {
       if (button.disabled) return;
+      hideFileMenu();
       event.preventDefault();
       const action = button.dataset.action;
       if (actions[action]) Promise.resolve(actions[action](button)).catch((error) => toast(error.message || "操作失败", true));
@@ -699,6 +814,7 @@
     event.preventDefault();
     if (event.target.id === "password-form") submitPassword().catch((error) => toast(error.message, true));
     else if (event.target.id === "extract-form") submitExtraction().catch((error) => toast(error.message, true));
+    else if (event.target.id === "rename-form") submitRename(event.target);
     else if (event.target.id === "settings-form") {
       state.view = $("#default-view").value;
       state.compact = $("#setting-compact").checked;
@@ -707,12 +823,7 @@
       savePreferences(); closeDialog(); render(); toast("偏好设置已保存");
     }
   });
-  dialog.addEventListener("cancel", () => {
-    const password = $("#archive-password");
-    if (password) password.value = "";
-    state.dialog = null;
-    if (state.previewUrl) { URL.revokeObjectURL(state.previewUrl); state.previewUrl = null; }
-  });
+  dialog.addEventListener("cancel", event => { event.preventDefault(); closeDialog(); });
   dialog.addEventListener("click", (event) => {
     if (event.target !== dialog) return;
     const rect = dialog.getBoundingClientRect();
@@ -723,6 +834,7 @@
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o" && !dialog.open) { event.preventDefault(); Promise.resolve(showOpen()).catch((error) => toast(error.message, true)); }
     if (event.key === "Escape" && !dialog.open) { $("#more-menu").hidden = true; document.body.classList.remove("sidebar-open", "show-details"); $(".sidebar-backdrop").hidden = true; }
     if (event.target.matches("input, textarea, select") || dialog.open) return;
+    if (event.key === "F2" && state.page === "browser" && state.archive?.canRename && state.selection.size === 1) { event.preventDefault(); showRename(); }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a" && state.page === "browser" && !isLocked() && !state.archive?.external) { event.preventDefault(); toggleSelectAll(true); }
     const row = event.target.closest("[data-file-id]");
     if (row && event.key === "Enter") { event.preventDefault(); openItem(row.dataset.fileId); }
@@ -754,11 +866,11 @@
   window.addEventListener("beforeunload", () => { if (state.previewUrl) URL.revokeObjectURL(state.previewUrl); });
   render();
   if (native) {
-    $(".preview-tag").textContent = "Dev v1.0.1";
     native.onTask((task) => acceptNativeTask(task));
     native.onArchive((archive) => acceptNativeArchive(archive, state.archive?.id !== archive.id));
     native.onUpdate((value) => { state.update = value; if (state.page === "updates") renderUpdates(); });
     native.onEdits((value) => { if (state.archive?.id === value.archiveId) { state.edits = value; renderEditNotice(); } });
+    native.onProgram(value => { if (state.archive?.id === value.archiveId) { state.program = value; renderProgramNotice(); } });
     callNative("ready").then((info) => { $("#engine-status").textContent = info.engine; $(".preview-tag").textContent = info.version; if (info.updates) state.update = info.updates; info.tasks.forEach((task) => acceptNativeTask(task)); }).catch((error) => toast(error.message, true));
   }
 })();

@@ -96,6 +96,9 @@ test("Chinese passwords unlock header-encrypted 7z and AES ZIP via stdin", async
     const unlocked = await engine.open(archivePath, "迷你压缩2026");
     assert.equal(unlocked.archive.locked, false);
     assert.equal(unlocked.archive.canDelete, false);
+    const memory = new ArchiveEngine({ cacheRoot: path.join(root, "never-create-encrypted-" + format) });
+    for (let i = 0; i < 2; i++) assert.equal((await memory.preview(unlocked, "说明.txt")).content, contents);
+    await assert.rejects(fs.stat(memory.cacheRoot), { code: "ENOENT" });
     const result = await engine.extract(unlocked, await destination(`密码解压-${format}`), { policy: "rename" });
     assert.equal(await fs.readFile(path.join(result.destination, "说明.txt"), "utf8"), contents);
     await engine.close(unlocked);
@@ -109,6 +112,65 @@ test("selection extraction does not expand wildcard-like command filenames", asy
   assert.equal(result.files, 1);
   assert.deepEqual(await fs.readdir(result.destination), ["@清单.txt"]);
   await engine.close(session);
+});
+
+test("repeated native previews, literal names and over-limit streams leave no disk artifacts", async () => {
+  const temp = await destination("only-archives");
+  const memory = new ArchiveEngine({ cacheRoot: path.join(temp, "no-cache") });
+  const archive = path.join(temp, "preview.zip");
+  const writer = new zip.ZipWriter(new zip.Uint8ArrayWriter(), { useWebWorkers: false });
+  const payload = Buffer.from([0, 255, 16, 128]);
+  await writer.add("image.png", new zip.Uint8ArrayReader(payload));
+  for (const name of ["@清单.txt", "-名称.txt"]) await writer.add(name, new zip.TextReader("<script>plain text</script>"));
+  await writer.add("empty.txt", new zip.TextReader(""));
+  const big = "a".repeat(1024 ** 2 + 1);
+  await writer.add("large.txt", new zip.TextReader(big));
+  await fs.writeFile(archive, await writer.close());
+  const current = await memory.open(archive);
+  for (let n = 0; n < 3; n++) {
+    assert.deepEqual((await memory.preview(current, "image.png")).bytes, payload);
+    for (const name of ["@清单.txt", "-名称.txt"]) assert.equal((await memory.preview(current, name)).content, "<script>plain text</script>");
+    assert.equal((await memory.preview(current, "empty.txt")).content, "");
+  }
+  await assert.rejects(memory.preview(current, "large.txt"), { code: "PREVIEW_LIMIT" });
+  await memory.close(current);
+  const input = path.join(root, "large.txt"); await fs.writeFile(input, big);
+  await createLz4(input, path.join(temp, "large.txt.lz4"));
+  const stream = await memory.open(path.join(temp, "large.txt.lz4"));
+  assert.equal(stream.flat[0].size, null);
+  await assert.rejects(memory.preview(stream, "large.txt"), { code: "PREVIEW_LIMIT" });
+  await memory.close(stream);
+  assert.deepEqual((await fs.readdir(temp)).sort(), ["large.txt.lz4", "preview.zip"]);
+});
+
+for (const format of ["zip", "7z", "tar"]) test(`${format}: rename file and folder with verified payloads, original backup and stable session`, async () => {
+  const archivePath = await createArchive(`rename-entries.${format}`, format);
+  const original = await fs.readFile(archivePath), session = await engine.open(archivePath);
+  for (const [name, code] of [["说明.txt", "NAME_CONFLICT"], ["../x", "INVALID_NAME"], ["A\\B", "INVALID_NAME"], ["CON.txt", "UNSAFE_PATH"]]) {
+    await assert.rejects(engine.renameEntry(session, "文件夹", name), { code });
+  }
+  assert.deepEqual(await fs.readFile(archivePath), original);
+  const first = await engine.renameEntry(session, "文件夹", "新目录");
+  assert.equal(first.session.archive.id, session.archive.id);
+  assert.deepEqual(await fs.readFile(first.backupPath), original);
+  assert.equal((await engine.preview(first.session, "新目录/数据.json")).content, '{"title":"测试"}');
+  const second = await engine.renameEntry(first.session, "@清单.txt", "-另一个.txt");
+  assert.equal((await engine.preview(second.session, "-另一个.txt")).content, "at sign");
+  assert.equal((await engine.preview(second.session, "说明.txt")).content, contents);
+  assert.equal(second.session.flat.some(x => x.path === "@清单.txt"), false);
+  await assert.rejects(engine.renameEntry(session, "文件夹", "stale"), { code: "ARCHIVE_CHANGED" });
+  await engine.close(second.session);
+});
+
+test("ZIP implicit folder and excluded read-only formats", async () => {
+  const writer = new zip.ZipWriter(new zip.Uint8ArrayWriter());
+  await writer.add("src/file.txt", new zip.TextReader("implicit"));
+  const p = path.join(root, "implicit.zip"); await fs.writeFile(p, await writer.close());
+  const session = await engine.open(p);
+  const renamed = await engine.renameEntry(session, "src", "folder");
+  assert.equal((await engine.preview(renamed.session, "folder/file.txt")).content, "implicit");
+  const readonly = await engine.open(path.join(__dirname, "fixtures/archives/test_read_format_rar5_stored.rar"));
+  await assert.rejects(engine.renameEntry(readonly, "helloworld.txt", "hello.txt"), { code: "READ_ONLY" });
 });
 
 test("rename, skip and overwrite policies preserve their distinct behavior", async () => {

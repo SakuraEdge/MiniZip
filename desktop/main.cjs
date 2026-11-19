@@ -9,6 +9,8 @@ const { spawn } = require("node:child_process");
 const { ArchiveEngine, ArchiveError, normalizeEntryPath, rejectLinks, assertInside, makeTree } = require("./archive-engine.cjs");
 const { scanInputs, compress } = require("./compress-engine.cjs");
 const { EditSessions, isExecutable } = require("./edit-sessions.cjs");
+const ExternalFile = require("./external-file.cjs");
+const { ProgramRuns, describe: describeProgram } = require("./program-runs.cjs");
 const { UpdateService } = require("./updates.cjs");
 const { parseLaunch } = require("./launch.cjs");
 const releaseConfig = require("../release-config.json");
@@ -22,10 +24,12 @@ const workbenches = new Map();
 const sessionOwners = new Map();
 const tasks = new Map();
 const activeArchives = new Set();
+const openingPaths = new Set();
 const activeDestinations = new Set();
 const testMode = process.env.MINIZIP_TEST_MODE === "1";
 let engine;
 let edits;
+let programs;
 const initialLaunch = parseLaunch(process.argv.slice(app.isPackaged ? 1 : 2));
 let updates;
 let queuedCompression = [];
@@ -55,10 +59,11 @@ function getSession(id, view) {
 }
 function assertIdle(id) {
   const current = sessions.get(id);
-  if (sessionOwners.get(id)?.openingEntry || activeArchives.has(current?.archive.path.toLowerCase() || id)) throw new ArchiveError("BUSY", "当前文件仍有任务进行中，请完成或取消后再操作。");
+  const key = current?.archive.path.toLowerCase() || id;
+  if (sessionOwners.get(id)?.openingEntry || openingPaths.has(key) || activeArchives.has(key)) throw new ArchiveError("BUSY", "当前文件仍有任务进行中，请完成或取消后再操作。");
 }
 function send(channel, payload, target) {
-  const owner = target || (channel === "archive" ? sessionOwners.get(payload.id) : channel === "task" || channel === "edits" ? sessionOwners.get(payload.archiveId) : null);
+  const owner = target || (channel === "archive" ? sessionOwners.get(payload.id) : ["task", "edits", "program"].includes(channel) ? sessionOwners.get(payload.archiveId) : null);
   const recipients = owner ? [owner] : channel === "update" ? [...workbenches.values()] : [];
   for (const view of recipients) if (!view.window.isDestroyed() && view.ready) view.window.webContents.send("minizip:" + channel, payload);
   if (channel === "task") {
@@ -71,9 +76,11 @@ function publicTask(task) {
 }
 function updateTask(task, changes) { Object.assign(task, changes); send("task", publicTask(task)); }
 
-function startTask(current, kind, destination, operation) {
+function startTask(current, kind, destination, operation, programToken = null) {
   assertIdle(current.archive.id);
   const lockKey = current.archive.path?.toLowerCase() || current.archive.id;
+  const run = programs?.forPath(lockKey);
+  if (run && ["delete", "rename", "update", "compress"].includes(kind) && run.token !== programToken) throw new ArchiveError("PROGRAM_OPEN", "此压缩包有未结束的程序运行会话，请先处理运行结果。");
   if (activeArchives.has(lockKey)) throw new ArchiveError("BUSY", "此压缩包正在另一个窗口中处理。");
   if ([...tasks.values()].filter((task) => task.status === "running").length >= 3) throw new ArchiveError("BUSY", "已有 3 个任务进行中，请等待任务完成。");
   if (destination) {
@@ -98,8 +105,10 @@ function startTask(current, kind, destination, operation) {
   task.promise = new Promise((resolve) => setImmediate(resolve)).then(async () => {
     try {
       const result = await operation(options);
+      const parentId = sessionOwners.get(current.archive.id)?.parentArchiveId;
+      if (parentId && result?.backupPath) await edits.trackNestedBackup(parentId, current, result.backupPath).catch(() => {});
       if (result?.session) { await engine.close(current); sessions.set(current.archive.id, result.session); edits.setSession(result.session); send("archive", result.session.archive); }
-      updateTask(task, { status: "completed", progress: 100, phase: "completed", canCancel: false, result: result?.session ? { backupPath: result.backupPath, deleted: result.deleted, updated: result.updated } : result, finishedAt: Date.now() });
+      updateTask(task, { status: "completed", progress: 100, phase: "completed", canCancel: false, result: result?.session ? { backupPath: result.backupPath, deleted: result.deleted, updated: result.updated, renamedTo: result.renamedTo } : result, finishedAt: Date.now() });
     } catch (error) {
       updateTask(task, { status: error.code === "CANCELLED" ? "cancelled" : "failed", phase: "finished", canCancel: false, error: errorPayload(error), finishedAt: Date.now() });
     } finally {
@@ -188,6 +197,7 @@ function registerHandlers() {
   handle("unlock", async ({ archiveId, password }, view) => {
     assertIdle(archiveId);
     const current = getSession(archiveId, view);
+    if (programs.forPath(current.archive.path)) throw new ArchiveError("PROGRAM_OPEN", "请先处理程序运行结果。");
     const unlocked = await engine.open(current.archive.path, password);
     if (unlocked.archive.locked) throw new ArchiveError("WRONG_PASSWORD", "密码不正确，请重试。");
     unlocked.archive.id = archiveId;
@@ -220,10 +230,14 @@ function registerHandlers() {
     if (!Array.isArray(selection) || !selection.length) throw new ArchiveError("INVALID_SELECTION", "请先选择要删除的文件。");
     if (!current.archive.canDelete) throw new ArchiveError("READ_ONLY", "此格式或加密方式暂不支持直接删除内部文件。");
     if ((await edits.scan(archiveId, true)).count) throw new ArchiveError("UNSAVED_EDITS", "有外部修改尚未保存，请先处理修改再删除文件。");
+    if (edits.touches(current.archive.path, selection)) throw new ArchiveError("EXTERNAL_OPEN", "所选文件仍有外部临时副本，请先结束编辑并处理修改。");
     const selected = engine.selected(current, selection);
     const choice = await dialog.showMessageBox(view.window, { type: "warning", title: current.archive.folder ? "移到回收站" : "删除压缩包内文件", message: `确认${current.archive.folder ? "移到回收站" : "删除"}所选 ${selection.length} 个项目？`, detail: `${current.archive.path}\n\n${selection.slice(0, 8).join("\n")}\n\n${current.archive.folder ? "文件将移至系统回收站。" : "原压缩包会在同目录保留 .minizip-backup 备份。"}`, buttons: ["取消", current.archive.folder ? "移到回收站" : "删除并保留备份"], defaultId: 0, cancelId: 0, noLink: true });
     if (choice.response !== 1) return null;
-    if (!current.archive.folder) return startTask(current, "delete", null, (options) => engine.deleteEntries(current, selection, options));
+    if (!current.archive.folder) return startTask(current, "delete", null, (options) => {
+      if (edits.touches(current.archive.path, selection)) throw new ArchiveError("EXTERNAL_OPEN", "所选文件还有外部临时副本。");
+      return engine.deleteEntries(current, selection, options);
+    });
     const top = selection.filter((id) => !selection.some((other) => other !== id && id.startsWith(other + "/")));
     return startTask(current, "delete", null, async (options) => {
       options.onPhase("committing");
@@ -245,20 +259,19 @@ function registerHandlers() {
       return { deleted, recycleBin: true };
     });
   });
+  handle("rename", ({ archiveId, entryId, name }, view) => {
+    const current = getSession(archiveId, view);
+    if (!current.archive.canRename) throw new ArchiveError("READ_ONLY", "此位置不支持包内重命名。");
+    if (edits.touches(current.archive.path, [entryId])) throw new ArchiveError("EXTERNAL_OPEN", "请先结束该项目的外部编辑并处理修改。");
+    engine.renameTarget(current, entryId, name);
+    return startTask(current, "rename", null, options => engine.renameEntry(current, entryId, name, options));
+  });
   handle("preview", async ({ archiveId, entryId }, view) => {
     const current = getSession(archiveId, view);
     assertIdle(archiveId);
-    if (!current.archive.folder) return engine.preview(current, entryId);
-    const item = current.flat.find((entry) => entry.path === entryId && !entry.folder);
-    if (!item) throw new ArchiveError("INVALID_SELECTION", "文件不在当前目录。");
-    const filePath = path.join(current.archive.path, ...normalizeEntryPath(entryId).split("/"));
-    assertInside(current.archive.path, filePath); await rejectLinks(filePath);
-    const stat = await fs.stat(filePath);
-    const ext = Core.extension(filePath);
-    const mime = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif", avif: "image/avif" }[ext];
-    if (mime && stat.size <= 12 * 1024 ** 2) return { kind: "image", dataUrl: `data:${mime};base64,${(await fs.readFile(filePath)).toString("base64")}` };
-    if (Core.kindFor(filePath) === "text" && stat.size <= 1024 ** 2) return { kind: "text", content: await fs.readFile(filePath, "utf8") };
-    throw new ArchiveError("NO_PREVIEW", "不支持此类型，或文件超过预览大小上限。");
+    if (current.archive.folder) throw new ArchiveError("NO_PREVIEW", "本地文件通过原始路径打开。");
+    view.openingEntry = true;
+    try { return await engine.preview(current, entryId); } finally { view.openingEntry = false; }
   });
   handle("openEntry", async ({ archiveId, entryId }, view) => {
     const current = getSession(archiveId, view);
@@ -266,11 +279,16 @@ function registerHandlers() {
     const item = current.flat.find((entry) => entry.path === entryId && !entry.folder);
     if (!item) throw new ArchiveError("INVALID_SELECTION", "请选择当前压缩包中的文件。");
     if (view.openingEntry) throw new ArchiveError("BUSY", "正在打开文件，请稍候。");
+    if (programs.forPath(current.archive.path)) throw new ArchiveError("PROGRAM_OPEN", "此压缩包已有程序运行目录，请先结束运行并处理改动。");
+    const plan = !current.archive.folder && /\.exe$/i.test(entryId) ? describeProgram(current, entryId) : null;
+    if (plan && edits.usesArchive(current.archive.path)) throw new ArchiveError("EXTERNAL_OPEN", "请先在工作台结束此外部编辑或关闭嵌套工作台，再运行程序。");
     view.openingEntry = true;
+    const key = current.archive.path.toLowerCase(); openingPaths.add(key);
     try {
       const executable = isExecutable(entryId);
       if (executable) {
-        const answer = await dialog.showMessageBox(view.window, { type: "warning", title: "运行压缩包中的程序", message: `运行 ${path.basename(entryId)}？`, detail: "此文件将在你的电脑上执行，可能修改文件或系统设置。请仅运行来源可信的程序。相关目录会先解压到临时工作区。", buttons: ["取消", "确认运行"], defaultId: 0, cancelId: 0, noLink: true });
+        const scope = plan ? `\n\n临时展开：${plan.scope || "压缩包根目录（整个包）"}\n${plan.files.length} 个文件 · ${Core.formatBytes(plan.bytes)}。退出后有数据变化时，将询问是否更新压缩包。` : "";
+        const answer = await dialog.showMessageBox(view.window, { type: "warning", title: "运行程序", message: `运行 ${path.basename(entryId)}？`, detail: "程序将以当前用户身份运行。请只运行来源可信的程序。" + scope, buttons: ["取消", "确认运行"], defaultId: 0, cancelId: 0, noLink: true });
         if (answer.response !== 1) return { cancelled: true };
       }
       if (current.archive.encrypted && !view.approvedDecryption) {
@@ -278,22 +296,60 @@ function registerHandlers() {
         if (answer.response !== 1) return { cancelled: true };
         view.approvedDecryption = true;
       }
-      let filePath;
+      if (plan) return await programs.launch(current, entryId);
+      let filePath, lease;
       if (current.archive.folder) {
         filePath = path.join(current.archive.path, ...normalizeEntryPath(entryId).split("/"));
         assertInside(current.archive.path, filePath); await rejectLinks(filePath);
         if (!(await fs.lstat(filePath)).isFile()) throw new ArchiveError("INVALID_FILE", "文件已不存在。");
-      } else filePath = await edits.prepare(current, entryId, executable);
-      if (Core.isArchive(entryId)) {
-        await createWindow(filePath, "open", current.archive.folder ? null : archiveId);
-        return { nested: true };
+      } else {
+        lease = await edits.acquire(current, entryId, Core.isArchive(entryId) ? "nested" : "external");
+        filePath = lease.filePath;
       }
-      const error = await shell.openPath(filePath);
-      if (error) throw new ArchiveError("OPEN_FAILED", "无法调用此类型的默认应用，请在 Windows 中设置打开方式后重试。");
+      try {
+        if (Core.isArchive(entryId)) {
+          await createWindow(filePath, "open", lease ? archiveId : null, lease?.finish);
+          return { nested: true };
+        }
+        if (lease) await ExternalFile.open(filePath, lease.finish);
+        else if (await shell.openPath(filePath)) throw new ArchiveError("OPEN_FAILED", "无法调用此类型的默认应用，请检查 Windows 打开方式。");
+      } catch (error) { await lease?.finish(); throw error; }
       return { opened: true };
-    } finally { view.openingEntry = false; }
+    } finally { view.openingEntry = false; openingPaths.delete(key); }
+  });
+  handle("programAction", async ({ archiveId, token, revision, action }, view) => {
+    const current = getSession(archiveId, view), run = programs.get(archiveId);
+    if (!run || run.token !== token) throw new ArchiveError("SESSION_EXPIRED", "程序运行会话已结束。");
+    if (action === "reveal" && run.dir) { await rejectLinks(run.dir); shell.showItemInFolder(run.contentRemoved ? run.dir : run.content); return null; }
+    assertIdle(archiveId);
+    if (action === "save") return saveProgram(current, token, revision);
+    if (action === "discard") { await programs.decide(archiveId, token, revision, false); return null; }
+    if (action === "retry" && run.phase === "cleanup-error") { await programs.cleanup(run); return null; }
+    if (action === "retry" && run.phase === "scan-error") { await programs.finish(run); return null; }
+    if (action === "finish" && run.phase === "untracked") {
+      const answer = await dialog.showMessageBox(view.window, { type: "question", message: "程序和它启动的其他窗口都已关闭？", detail: "确认后会检查这次运行的文件变化。", buttons: ["仍在运行", "均已退出"], defaultId: 0, cancelId: 0, noLink: true });
+      if (answer.response === 1 && run.phase === "untracked") await programs.finish(run);
+      return null;
+    }
+    throw new ArchiveError("BUSY", "程序运行状态已变化，请查看最新提示。");
   });
   handle("editState", async ({ archiveId }, view) => { getSession(archiveId, view); return edits.scan(archiveId, true); });
+  handle("finishEdits", async ({ archiveId, entryId }, view) => {
+    getSession(archiveId, view); assertIdle(archiveId);
+    if (!edits.snapshot(archiveId).copies.some(c => c.id === entryId && !c.nested)) throw new ArchiveError("INVALID_SELECTION", "当前没有这个外部编辑会话。");
+    const choice = await dialog.showMessageBox(view.window, { type: "question", title: "结束外部编辑", message: "已在外部应用中关闭这个文件？", detail: `${entryId}\n未修改的临时文件将清理；有改动会先保留，等你决定是否更新压缩包。`, buttons: ["继续编辑", "已关闭文件"], defaultId: 0, cancelId: 0, noLink: true });
+    if (choice.response === 1) return edits.finish(archiveId, [entryId]);
+    return edits.snapshot(archiveId);
+  });
+  handle("discardEdits", async ({ archiveId }, view) => {
+    getSession(archiveId, view); assertIdle(archiveId);
+    await edits.scan(archiveId, true);
+    const candidates = edits.discardCandidates(archiveId);
+    if (!candidates.length) throw new ArchiveError("BUSY", "请先关闭文件并结束外部编辑。");
+    const choice = await dialog.showMessageBox(view.window, { type: "warning", title: "不更新压缩包", message: `放弃这 ${candidates.length} 个已结束编辑的临时文件的修改？`, detail: candidates.map(([id]) => id).slice(0, 12).join("\n"), buttons: ["取消", "放弃修改并清理"], defaultId: 0, cancelId: 0, noLink: true });
+    if (choice.response === 1) await edits.discard(archiveId, candidates);
+    return edits.snapshot(archiveId);
+  });
   handle("saveEdits", async ({ archiveId }, view) => {
     const current = getSession(archiveId, view);
     assertIdle(archiveId);
@@ -314,11 +370,13 @@ function registerHandlers() {
     return Boolean(location);
   });
   handle("workFiles", async () => {
-    const directory = path.join(app.getPath("userData"), "work-files");
-    await fs.mkdir(directory, { recursive: true });
-    const error = await shell.openPath(directory);
-    if (error) throw new ArchiveError("OPEN_FAILED", "无法打开工作副本目录。");
-    return true;
+    for (const directory of [edits.directory, programs.directory, path.join(app.getPath("userData"), "work-files")]) {
+      await rejectLinks(directory);
+      try { if (!(await fs.readdir(directory)).length) continue; } catch (error) { if (error.code === "ENOENT") continue; throw error; }
+      if (await shell.openPath(directory)) throw new ArchiveError("OPEN_FAILED", "无法打开临时文件目录。");
+      return true;
+    }
+    return false;
   });
   handle("cancelTask", ({ taskId }, view) => {
     const task = tasks.get(taskId);
@@ -350,6 +408,7 @@ function registerHandlers() {
   handle("downloadUpdate", () => { updates.download().catch(() => {}); return updates.snapshot(); });
   handle("cancelUpdate", () => { updates.cancel(); return true; });
   handle("installUpdate", async (_payload, view) => {
+    if (programs.runs.size) throw new ArchiveError("PROGRAM_OPEN", "请先关闭包内程序并处理运行结果，再安装更新。");
     if ([...tasks.values()].some((task) => task.status === "running")) throw new ArchiveError("BUSY", "请先完成或取消文件任务再安装更新。");
     if ([...workbenches.values()].some((current) => current.opening || current.openingEntry || current.confirmingClose)) throw new ArchiveError("BUSY", "请先完成当前文件或窗口操作。");
     for (const current of workbenches.values()) if (current.archiveId && (await edits.scan(current.archiveId, true)).count) throw new ArchiveError("UNSAVED_EDITS", "请先处理所有工作台中尚未保存的外部修改。");
@@ -459,15 +518,48 @@ function queueQuickWindow(paths, mode = "compress") {
   }, 350);
 }
 
+function saveProgram(current, token, revision) {
+  const id = current.archive.id;
+  programs.reviewed(id, token, revision);
+  return startTask(current, "update", null, options => programs.decide(id, token, revision, true, options), token);
+}
+async function resolveProgram(view) {
+  const id = view.archiveId, run = programs.get(id);
+  if (!run) return true;
+  if (run.phase === "review") {
+    const { token, revision, changes, writable } = programs.state(id);
+    const buttons = writable ? ["返回工作台", "更新后关闭", "不更新并关闭"] : ["返回工作台", "不更新并关闭"];
+    const answer = await dialog.showMessageBox(view.window, { type: "question", title: "程序已退出", message: `${changes.length} 个文件有变化，是否更新压缩包？`, detail: "不更新会放弃本次运行的改动，并清理临时目录。", buttons, defaultId: 0, cancelId: 0, noLink: true });
+    if (!answer.response) return false;
+    if (writable && answer.response === 1) {
+      const task = saveProgram(getSession(id, view), token, revision); await tasks.get(task.id).promise;
+      return tasks.get(task.id).status === "completed" && !programs.get(id);
+    }
+    await programs.decide(id, token, revision, false); return !programs.get(id);
+  }
+  if (["scan-error", "cleanup-error"].includes(run.phase)) {
+    const answer = await dialog.showMessageBox(view.window, { type: "warning", message: "临时目录中还有未处理的文件。", detail: `${run.error}\n${run.dir}`, buttons: ["返回工作台", "保留临时目录并关闭"], defaultId: 0, cancelId: 0, noLink: true });
+    if (answer.response === 1 && programs.get(id) === run && ["scan-error", "cleanup-error"].includes(run.phase)) { programs.drop(run); return true; }
+    return false;
+  }
+  await dialog.showMessageBox(view.window, { type: "info", message: ["running", "untracked"].includes(run.phase) ? "请先退出包内程序，再处理运行结果。" : "正在处理程序临时目录，请稍候。", buttons: ["返回工作台"] }); return false;
+}
 async function resolveEdits(view) {
   if (!view.archiveId) return true;
+  if (!await resolveProgram(view)) return false;
   if ([...workbenches.values()].some((current) => current.parentArchiveId === view.archiveId)) {
     await dialog.showMessageBox(view.window, { type: "info", title: "嵌套压缩包仍在打开", message: "请先关闭此压缩包中的嵌套工作台。", detail: "内层压缩包保存后，外层工作台会提示将修改写回原包。" });
     return false;
   }
   const changed = await edits.scan(view.archiveId, true);
-  if (!changed.count) return true;
-  const choice = await dialog.showMessageBox(view.window, { type: "warning", title: "有尚未保存的修改", message: `${changed.count} 个文件已在外部应用中修改。`, detail: `关闭前是否保存到压缩包？\n${changed.canUpdate ? "原包会保留备份。" : "此格式不支持写回，可另存修改后的文件。"}\n继续关闭会保留工作副本：\n${edits.location(view.archiveId)}`, buttons: ["返回工作台", changed.canUpdate ? "保存后关闭" : "另存副本后关闭", "保留副本并关闭"], defaultId: 0, cancelId: 0, noLink: true });
+  view.finishedCopies = false;
+  if (!changed.count && !changed.copies.length) return true;
+  if (!changed.count) {
+    const choice = await dialog.showMessageBox(view.window, { type: "question", title: "关闭外部编辑", message: "外部应用中的文件都已关闭吗？", detail: "确认后清理未改动的临时文件。若仍在外部编辑，请返回工作台，或选择保留副本。", buttons: ["返回工作台", "已关闭文件，清理并关闭", "保留副本并关闭"], defaultId: 0, cancelId: 0, noLink: true });
+    view.finishedCopies = choice.response === 1;
+    return choice.response !== 0;
+  }
+  const choice = await dialog.showMessageBox(view.window, { type: "warning", title: "有尚未保存的修改", message: `${changed.count} 个文件已在外部应用中修改。`, detail: `请先在外部应用中保存并关闭文件。${changed.canUpdate ? "写回成功后清理已保存的临时文件，并保留原包备份。" : "此格式不支持写回，可另存修改后的文件。"}\n保留副本的位置：\n${edits.location(view.archiveId)}`, buttons: ["返回工作台", changed.canUpdate ? "已结束编辑，保存后关闭" : "另存副本后关闭", "保留副本并关闭"], defaultId: 0, cancelId: 0, noLink: true });
   if (choice.response === 0) return false;
   if (choice.response === 1) {
     if (changed.canUpdate) {
@@ -475,6 +567,7 @@ async function resolveEdits(view) {
       const task = startTask(current, "update", null, (options) => edits.save(current, options));
       await tasks.get(task.id).promise;
       if (tasks.get(task.id).status !== "completed") return false;
+      view.finishedCopies = true;
     } else {
       const result = await dialog.showOpenDialog(view.window, { title: "另存修改后的文件", properties: ["openDirectory", "createDirectory"] });
       if (result.canceled) return false;
@@ -486,23 +579,29 @@ async function resolveEdits(view) {
 async function releaseWorkbench(view) {
   if (view.archiveId) {
     const current = sessions.get(view.archiveId);
+    await edits.close(view.archiveId, { finished: view.finishedCopies });
     if (current && !current.archive.folder) await engine.close(current);
-    edits.close(view.archiveId); sessions.delete(view.archiveId); sessionOwners.delete(view.archiveId);
+    sessions.delete(view.archiveId); sessionOwners.delete(view.archiveId);
     view.archiveId = null;
   }
+  if (view.finishParent) { const finish = view.finishParent; view.finishParent = null; view.parentArchiveId = null; await finish(); }
+  view.approvedDecryption = false; view.finishedCopies = false;
   view.allowedDestinations.clear();
   if (!view.window.isDestroyed()) view.window.setTitle("MiniZip");
 }
-async function createWindow(initialPath = null, launchMode = "open", parentArchiveId = null) {
+async function createWindow(initialPath = null, launchMode = "open", parentArchiveId = null, finishParent = null) {
   const window = new BrowserWindow({ width: 1320, height: 870, minWidth: 780, minHeight: 620, title: "MiniZip", icon: path.resolve(__dirname, "../assets/minizip.ico"), backgroundColor: "#eef6f7", show: !testMode, autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, navigateOnDragDrop: false, backgroundThrottling: !testMode, devTools: !app.isPackaged } });
-  const view = { window, ready: false, archiveId: null, allowedDestinations: new Set(), initialPath, launchMode, parentArchiveId, closing: false, opening: false, openingEntry: false };
+  const view = { window, ready: false, archiveId: null, allowedDestinations: new Set(), initialPath, launchMode, parentArchiveId, finishParent, closing: false, opening: false, openingEntry: false };
   const contentsId = window.webContents.id;
   workbenches.set(contentsId, view);
   Menu.setApplicationMenu(null);
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => { if (url !== entryUrl) event.preventDefault(); });
   window.webContents.on("will-attach-webview", (event) => event.preventDefault());
-  window.webContents.on("did-start-navigation", () => { view.ready = false; });
+  window.webContents.on("will-frame-navigate", event => {
+    if (!event.isMainFrame && !event.url.startsWith("blob:file:///") && !event.url.startsWith("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/")) event.preventDefault();
+  });
+  window.webContents.on("did-start-navigation", event => { if (event.isMainFrame) view.ready = false; });
   window.on("focus", () => { if (view.archiveId) edits.scan(view.archiveId, true).catch(() => {}); });
   window.on("close", (event) => {
     if (view.closing) return;
@@ -519,7 +618,12 @@ async function createWindow(initialPath = null, launchMode = "open", parentArchi
       view.closing = true; window.destroy();
     })().catch((error) => dialog.showErrorBox("无法关闭工作台", errorPayload(error).message)).finally(() => { view.confirmingClose = false; });
   });
-  window.on("closed", () => { workbenches.delete(contentsId); });
+  window.on("closed", () => {
+    workbenches.delete(contentsId);
+    // A destroyed renderer can bypass the cancellable BrowserWindow close event.
+    // Detach, preserve unresolved external edits and release the nested file lease.
+    if (view.archiveId || view.finishParent) { view.finishedCopies = false; releaseWorkbench(view).catch(() => {}); }
+  });
   await window.loadFile(path.resolve(__dirname, "../index.html"));
   return view;
 }
@@ -538,7 +642,9 @@ else {
     nativeTheme.themeSource = "light";
     const cacheRoot = path.join(app.getPath("temp"), "MiniZip", randomUUID());
     engine = new ArchiveEngine({ cacheRoot });
-    edits = new EditSessions(engine, path.join(app.getPath("userData"), "work-files"), (value) => send("edits", value));
+    const tempRoot = testMode ? app.getPath("userData") : app.getPath("temp");
+    programs = new ProgramRuns(engine, path.join(tempRoot, "MiniZip-runs"), value => send("program", value));
+    edits = new EditSessions(engine, path.join(tempRoot, "MiniZip-edits"), (value) => send("edits", value));
     electronSession.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     electronSession.defaultSession.setPermissionCheckHandler(() => false);
     electronSession.defaultSession.webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] }, (_details, callback) => callback({ cancel: true }));
@@ -554,5 +660,5 @@ else {
     }
   }).catch((error) => { dialog.showErrorBox("MiniZip 启动失败", errorPayload(error).message); app.quit(); });
   app.on("window-all-closed", () => { if (!queuedCompression.length) app.quit(); });
-  app.on("will-quit", () => edits?.dispose());
+  app.on("will-quit", () => { edits?.dispose(); ExternalFile.dispose(); });
 }

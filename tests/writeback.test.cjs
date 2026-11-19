@@ -74,6 +74,21 @@ test("writeback rejects hard-linked editor files", async () => {
   await assert.rejects(engine.updateEntries(session, [{ ...item, sourcePath: linked }]), { code: "UNSAFE_LINK" });
 });
 
+for (const format of ["zip", "7z", "tar"]) test(`${format}: one verified transaction for modified, new and removed program files`, async () => {
+  const session = await fixture(format, 'mixed-' + format), before = await hashFile(session.archive.path);
+  const original = await replacement('mixed-' + format, 'counter=1');
+  for (const entryId of ['UNCHANGED.TXT', 'unchanged.txt/new.txt', '文档']) {
+    await assert.rejects(engine.updateEntries(session, [{ ...original, added: true, entryId }]), { code: 'NAME_CONFLICT' });
+  }
+  assert.equal(await hashFile(session.archive.path), before);
+  const added = { ...await replacement('added-' + format, 'first run'), added: true, entryId: '文档/data/new.txt' };
+  const result = await engine.updateEntries(session, [original, added, { entryId: 'unchanged.txt', removed: true }]);
+  assert.equal(result.updated, 3); assert.equal(await hashFile(result.backupPath), before);
+  assert.equal((await engine.preview(result.session, original.entryId)).content, 'counter=1');
+  assert.equal((await engine.preview(result.session, added.entryId)).content, 'first run');
+  assert.equal(result.session.flat.some(e => e.path === 'unchanged.txt'), false);
+});
+
 for (const format of ["zip-aes", "zip-crypto", "7z"]) {
   test(`${format}: Chinese-password updates preserve encryption and unchanged entries`, async () => {
     const password = "中文密码 2026";
@@ -94,11 +109,14 @@ for (const format of ["zip-aes", "zip-crypto", "7z"]) {
     const session = await engine.open(archive, password);
     assert.equal(session.archive.canUpdate, true);
     const original = await fs.readFile(archive);
-    const result = await engine.updateEntries(session, [await replacement("encrypted-" + format)]);
+    const added = { ...await replacement('encrypted-new-' + format, 'private data'), entryId: 'data/新.txt', added: true };
+    const result = await engine.updateEntries(session, [await replacement("encrypted-" + format), added]);
     assert.deepEqual(await fs.readFile(result.backupPath), original);
     assert.equal((await engine.open(archive)).archive.locked, true);
     assert.equal((await engine.preview(result.session, "文档/说明.txt")).content, "外部编辑后的内容");
     assert.equal((await engine.preview(result.session, "unchanged.txt")).content, "still encrypted");
+    assert.equal(result.session.flat.find(e => e.path === added.entryId).encrypted, true);
+    assert.equal((await engine.preview(result.session, added.entryId)).content, 'private data');
     const savedBytes = await fs.readFile(archive);
     const cancelled = new AbortController();
     await assert.rejects(engine.updateEntries(result.session, [await replacement("cancel-" + format)], { signal: cancelled.signal, onPhase(phase) { if (phase === "updating") cancelled.abort(); } }), { code: "CANCELLED" });

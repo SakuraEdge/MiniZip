@@ -4,7 +4,6 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 const invoke = (method, payload) => ipcRenderer.invoke("minizip:" + method, payload);
 
 contextBridge.exposeInMainWorld("miniZip", {
-  version: "Dev v1.0.1",
   openArchive: () => invoke("openArchive"),
   openFolder: () => invoke("openFolder"),
   openDropped: (file) => invoke("openDropped", { path: webUtils.getPathForFile(file) }),
@@ -12,10 +11,19 @@ contextBridge.exposeInMainWorld("miniZip", {
   unlock: (archiveId, password) => invoke("unlock", { archiveId, password }),
   extract: (payload) => invoke("extract", payload),
   remove: (payload) => invoke("remove", payload),
+  rename: (archiveId, entryId, name) => invoke("rename", { archiveId, entryId, name }),
   test: (archiveId) => invoke("test", { archiveId }),
   preview: (archiveId, entryId) => invoke("preview", { archiveId, entryId }),
   openEntry: (archiveId, entryId) => invoke("openEntry", { archiveId, entryId }),
+  programAction: (archiveId, token, revision, action) => invoke("programAction", { archiveId, token, revision, action }),
+  onProgram: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("minizip:program", listener);
+    return () => ipcRenderer.removeListener("minizip:program", listener);
+  },
   editState: (archiveId) => invoke("editState", { archiveId }),
+  finishEdits: (archiveId, entryId) => invoke("finishEdits", { archiveId, entryId }),
+  discardEdits: archiveId => invoke("discardEdits", { archiveId }),
   saveEdits: (archiveId) => invoke("saveEdits", { archiveId }),
   exportEdits: (archiveId) => invoke("exportEdits", { archiveId }),
   revealEdits: (archiveId) => invoke("revealEdits", { archiveId }),

@@ -34,7 +34,8 @@ async function streamEntry(entry, password, destination, options = {}) {
     const writable = new WritableStream({
       async write(chunk) {
         bytes += chunk.length;
-        if (bytes > (options.maxBytes || entry.uncompressedSize)) throw Object.assign(new Error("解压结果超过声明大小。"), { code: "LIMIT" });
+        if (bytes > (options.maxBytes ?? entry.uncompressedSize)) throw Object.assign(new Error("解压结果超过声明大小。"), { code: "LIMIT" });
+        options.onChunk?.(chunk);
         if (handle) {
           let offset = 0;
           while (offset < chunk.length) {
@@ -67,13 +68,16 @@ async function replaceEntries(filePath, destination, replacements, password, opt
     let archiveComment;
     await readEntries(filePath, async (entries, reader) => {
       archiveComment = reader.comment;
+      const byName = new Map(entries.map(e => [e.filename.replace(/\\/g, "/"), e]));
       for (const replacement of replacements) {
         if (options.signal?.aborted) throw Object.assign(new Error("保存已取消。"), { code: "CANCELLED" });
-        const entry = entries.find((item) => item.filename.replace(/\\/g, "/") === replacement.entryId);
-        if (!entry || entry.directory) throw new Error("Replacement entry is missing");
+        const entry = byName.get(replacement.entryId);
+        if (replacement.added ? entry : !entry || entry.directory) throw new Error("Unexpected member in writeback plan");
+        if (replacement.removed) continue;
         const input = new FileReader(replacement.stagedPath);
         try {
-          await writer.add(entry.filename, input, { entry, lastModDate: new Date(), level: 5, signal: options.signal, ...(entry.encrypted ? { password, zipCrypto: entry.zipCrypto, encryptionStrength: entry.extraFieldAES?.strength || 3 } : {}) });
+          const encryption = replacement.added ? { password, encryptionStrength: 3 } : entry.encrypted ? { password, zipCrypto: entry.zipCrypto, encryptionStrength: entry.extraFieldAES?.strength || 3 } : {};
+          await writer.add(entry?.filename || replacement.entryId, input, { ...(entry ? { entry } : {}), lastModDate: new Date(), level: 5, signal: options.signal, ...encryption });
         } finally { await input.handle?.close(); }
       }
     });

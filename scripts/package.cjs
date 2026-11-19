@@ -24,9 +24,9 @@ async function main() {
   await fs.mkdir(stagingRoot, { recursive: true });
   const staging = await fs.mkdtemp(path.join(stagingRoot, "package-"));
   const config = require("../release-config.json");
-  const release = path.join(root, "release", `MiniZip-${config.channel}-${config.version}`);
+  const release = path.join(root, "release", process.argv.includes("--preview") ? "MiniZip-local-preview" : `MiniZip-${config.channel}-${config.version}`);
   try {
-    for (const file of ["index.html", "theme.css", "styles.css", "app.js", "core.js", "quick.html", "quick.css", "quick.js", "release-config.json", "package.json", "README.md", "THIRD_PARTY_NOTICES.md"]) await fs.copyFile(path.join(root, file), path.join(staging, file));
+    for (const file of ["index.html", "theme.css", "styles.css", "app.js", "core.js", "file-gestures.js", "quick.html", "quick.css", "quick.js", "release-config.json", "package.json", "README.md", "THIRD_PARTY_NOTICES.md"]) await fs.copyFile(path.join(root, file), path.join(staging, file));
     for (const folder of ["desktop", "vendor"]) await fs.cp(path.join(root, folder), path.join(staging, folder), { recursive: true });
     await fs.mkdir(path.join(staging, "assets"));
     for (const asset of ["favicon.svg", "minizip.ico", "minizip.png", "archive.svg", "archive.ico"]) await fs.copyFile(path.join(root, "assets", asset), path.join(staging, "assets", asset));
@@ -34,6 +34,8 @@ async function main() {
     await fs.cp(path.join(root, "node_modules/@zip.js/zip.js"), path.join(staging, "node_modules/@zip.js/zip.js"), { recursive: true });
     await fs.mkdir(path.join(staging, "engines/7zip"), { recursive: true });
     await fs.mkdir(path.join(staging, "engines/lz4"), { recursive: true });
+    await fs.mkdir(path.join(staging, "engines/shell"));
+    await fs.copyFile(await require("./build-helper.cjs").buildHelper(), path.join(staging, "engines/shell/MiniZip.ExternalFile.exe"));
     for (const file of ["7z.exe", "7z.dll", "License.txt", "readme.txt", "History.txt"]) await fs.copyFile(path.join(root, "engines/7zip", file), path.join(staging, "engines/7zip", file));
     for (const file of ["lz4.exe", "COPYING", "README.md", "NEWS"]) await fs.copyFile(path.join(root, "engines/lz4", file), path.join(staging, "engines/lz4", file));
     const { packager } = await import("@electron/packager");

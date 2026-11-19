@@ -162,6 +162,15 @@ h1 { font-size: 24px; line-height: 1.2; font-weight: 620; }
 .breadcrumbs button:last-child { color: var(--text); }
 .folder-count { margin-left: auto; color: var(--muted); white-space: nowrap; font-size: 10px; padding-left: 8px; }
 .file-content { flex: 1; min-height: 0; overflow: auto; position: relative; }
+.file-content { user-select: none; }
+.file-menu { position: fixed; z-index: 30; width: 194px; }
+.file-menu button:disabled { opacity: .48; }
+.file-menu button:focus-visible { background: var(--accent-soft); outline-offset: -2px; }
+.file-menu hr { margin: 3px 4px; border: 0; border-top: 1px solid var(--border); }
+.file-menu .menu-danger { color: #a34040; }
+.selection-marquee { position: fixed; z-index: 6; pointer-events: none; border: 1px solid var(--accent); background: rgb(49 158 152 / 16%); }
+.preview-pdf { display: block; width: 100%; height: min(60vh, 590px); border: 1px solid var(--border); border-radius: 5px; }
+.edit-actions { flex-wrap: wrap; }
 .file-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
 .file-table col.col-check { width: 39px; }
 .file-table col.col-size { width: 92px; }
@@ -612,6 +621,11 @@ body.no-details .details-panel { display: none; }
 /* Keep external-edit actions visible in every workbench view. */
 .edit-notice { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; margin-bottom: 16px; border-bottom: 1px solid #c7a75d; color: var(--text); }
 .edit-notice[hidden] { display: none; }
+.program-notice { border-color: var(--border); }
+.program-notice .edit-message > svg { color: var(--accent); }
+.program-notice details { margin-top: 5px; font-size: 12px; }
+.program-notice summary { cursor: pointer; }
+.program-notice ul { max-height: 110px; padding-left: 18px; margin: 4px 0 0; overflow: auto; overflow-wrap: anywhere; }
 .edit-message { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
 .edit-message > svg { flex: 0 0 20px; color: var(--warning); }
 .edit-message strong { display: block; font-size: 14px; }

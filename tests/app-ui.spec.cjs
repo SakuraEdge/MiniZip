@@ -1,5 +1,6 @@
 const { test, expect } = require("@playwright/test");
 const path = require("node:path");
+const { displayVersion } = require("../release-config.json");
 const { pathToFileURL } = require("node:url");
 const url = pathToFileURL(path.resolve(__dirname, "../index.html")).href;
 
@@ -13,7 +14,7 @@ test("fresh app has approved icon, collapsed sidebar and no sample content", asy
   await expect(page.locator("body")).not.toContainText("项目归档");
   await expect(page.locator("body")).not.toContainText("示例");
   await expect(page.locator(".brand-logo")).toHaveAttribute("src", "assets/favicon.svg");
-  await expect(page.locator(".preview-tag")).toHaveText("Dev v1.0.1");
+  await expect(page.locator(".preview-tag")).toHaveText(displayVersion);
   await page.getByRole("button", { name: "展开侧栏", exact: true }).click();
   await expect(page.locator("body")).toHaveClass(/sidebar-expanded/);
   await page.reload(); await expect(page.locator("body")).toHaveClass(/sidebar-expanded/);
@@ -54,9 +55,53 @@ test("recent and favorites contain only actually opened files", async ({ page })
   await page.getByRole("button", { name: "打开", exact: true }).click();
   await expect(page.locator("#archive-summary h2")).toHaveText("本地样例");
 });
+
+async function filesForGestures(page, n = 12) {
+  await page.evaluate(count => {
+    const data = new DataTransfer();
+    for (let i = 0; i < count; i++) {
+      const file = new File([String(i)], `file-${i}.txt`);
+      Object.defineProperty(file, "webkitRelativePath", { value: "Test/" + file.name }); data.items.add(file);
+    }
+    const input = document.querySelector('#folder-input'); input.files = data.files; input.dispatchEvent(new Event('change', { bubbles: true }));
+  }, n);
+}
+for (const view of ["list", "grid"]) test(`${view}: marquee selects intersecting items and context menu preserves its target`, async ({ page }) => {
+  await filesForGestures(page);
+  if (view === "grid") await page.locator('[data-view="grid"]').click();
+  const files = page.locator("[data-file-id]"); await expect(files).toHaveCount(12);
+  const a = await files.nth(0).boundingBox(), b = await files.nth(2).boundingBox();
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2); await page.mouse.down();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 12 });
+  await expect(page.locator(".selection-marquee")).toBeVisible(); await page.mouse.up();
+  await expect(page.locator("[data-file-id].selected")).toHaveCount(3);
+  await files.nth(1).click({ button: 'right' });
+  await expect(page.getByRole('menu')).toBeVisible();
+  await expect(page.locator("[data-file-id].selected")).toHaveCount(3);
+  await expect(page.getByRole('menuitem', { name: '重命名' })).toBeDisabled();
+  await page.keyboard.press('Escape'); await expect(page.getByRole('menu')).toBeHidden();
+  await files.nth(3).click({ button: 'right' });
+  await expect(page.locator("[data-file-id].selected")).toHaveCount(1);
+  await expect(files.nth(3)).toHaveClass(/selected/);
+  await page.keyboard.press('Escape');
+  await files.nth(0).focus(); await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menu')).toBeVisible(); await expect(files.nth(0)).toHaveClass(/selected/);
+  await page.keyboard.press('Escape');
+  await files.nth(4).locator('input').check(); await expect(page.locator('[data-file-id].selected')).toHaveCount(2);
+});
+test('drag near lower edge autoscrolls and Escape restores the selection', async ({ page }) => {
+  await filesForGestures(page, 70);
+  const first = page.locator('[data-file-id]').first(); await first.click();
+  const rect = await page.locator('#file-content').boundingBox(), f = await first.boundingBox();
+  await page.mouse.move(f.x + 100, f.y + f.height / 2); await page.mouse.down();
+  await page.mouse.move(f.x + 120, rect.y + rect.height - 1, { steps: 5 });
+  await expect.poll(() => page.locator('#file-content').evaluate(el => el.scrollTop)).toBeGreaterThan(30);
+  await page.keyboard.press('Escape'); await page.mouse.up();
+  await expect(page.locator('[data-file-id].selected')).toHaveCount(1); await expect(first).toHaveClass(/selected/);
+});
 test("update view has channels, preferences and honest browser error", async ({ page }) => {
   await page.getByRole("button", { name: "软件更新", exact: true }).click();
-  await expect(page.locator(".update-current")).toContainText("Dev v1.0.1");
+  await expect(page.locator(".update-current")).toContainText(displayVersion);
   await expect(page.getByRole("checkbox", { name: "接收 Dev 开发版本" })).toBeChecked();
   await page.getByRole("checkbox", { name: "接收 Dev 开发版本" }).uncheck();
   await page.getByRole("button", { name: "检查更新", exact: true }).click();
